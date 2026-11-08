@@ -153,12 +153,12 @@ const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
 export const BASEMAPS: Record<BasemapKey, { label: string; url: string; overlay?: string; credit: string; subdomains?: string[]; maxLevel: number; thumb: string }> = {
   light: {
     label: 'Xám nhạt', url: `${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
-    overlay: `${ESRI}/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    maxLevel: 16, // không thêm lớp nhãn: nhãn bị phóng quá zoom 16 sẽ to và nhoè
     credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f4f4f4 0%,#d9dde2 100%)',
   },
   dark: {
     label: 'Xám đậm', url: `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
-    overlay: `${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    maxLevel: 16,
     credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#3f3f46 0%,#18181b 100%)',
   },
   streets: {

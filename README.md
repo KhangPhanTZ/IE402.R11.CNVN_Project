@@ -4,6 +4,8 @@
 
 Quản lý mạng cống ngầm 3D, phân tích điểm ngập và xử lý sự cố quanh chợ Thủ Đức (≈ 1,8 km²).
 
+**Bản chạy trực tuyến:** https://ie402-thuduc-drainage.vercel.app (Vercel + Supabase Cloud, đăng nhập bằng tài khoản demo bên dưới)
+
 - **3D thật sự:** địa hình TIN, mạng cống Node–Arc (`PointZ`/`LineStringZ`), công trình B-Rep (SUDM LOD1–2), hố ga CSG; nhìn xuyên đất trên Cesium.
 - **12 phân tích PostGIS** (Q1–Q12): dốc ngược, chôn nông, va chạm 3D, truy vết, hố ga tràn, quá tải (Voronoi + Manning), KNN, trạng thái theo ngày, mặt cắt dọc…
 - **Thời gian:** dữ liệu lưỡng thời gian (valid/transaction time) + mô hình sự kiện.
@@ -85,15 +87,35 @@ Mật khẩu chung **`Demo@123`** (trang đăng nhập có nút đăng nhập nh
 
 ## Deploy
 
-1. Supabase Cloud: `npx supabase link --project-ref <ref>`, rồi `npx supabase db push`, rồi chạy `seed.py` với connection string của project.
-2. Vercel: import repo (đã có `vercel.json`), khai báo `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (tuỳ chọn `VITE_CESIUM_TOKEN`).
-3. Thêm domain Vercel vào *Authentication → URL Configuration* của Supabase.
+Đang chạy trên **Vercel** (giao diện) + **Supabase Cloud** (Postgres + PostGIS, Auth, Storage, Realtime). Deploy lại:
+
+```bash
+SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py supabase/migrations/*.sql
+```
+
+```bash
+PGPASSWORD=postgres bash scripts/deploy/export_seed_sql.sh ie402 deploy_sql
+```
+
+```bash
+SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py deploy_sql/*.sql
+```
+
+```bash
+VITE_SUPABASE_URL=https://<ref>.supabase.co VITE_SUPABASE_ANON_KEY=... npm run build
+```
+
+```bash
+VERCEL_TOKEN=... python3 scripts/deploy/vercel_deploy.py dist ie402-thuduc-drainage
+```
+
+Lần lượt: tạo schema trên project trống → xuất dữ liệu đã seed ở local → nạp lên cloud → build trỏ tới cloud → đưa lên Vercel. Nhớ đặt *Site URL* trong Supabase Auth là domain Vercel.
 
 ## Cấu trúc
 
 ```
 supabase/migrations/   schema · trigger topology/versioning/audit · RLS · RPC Q1–Q12
-scripts/               seed.py · test_rpc.ts · test_topology.sql · explain_knn.sql · dev/
+scripts/               seed.py · test_rpc.ts · test_topology.sql · explain_knn.sql · dev/ · deploy/
 src/map/               Cesium: lớp 3D, popup NN/KG/TG, panel phân tích, chỉnh sửa
 src/pages/             map · report · incidents · admin · login
 docs/THIET_KE.md       báo cáo thiết kế chi tiết
