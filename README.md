@@ -2,12 +2,6 @@
 
 Đồ án môn **IE402 – Hệ thống thông tin địa lý 3D** · Trường ĐH Công nghệ Thông tin – ĐHQG-HCM
 
-| | |
-|---|---|
-| Sinh viên | **Phan Tran Van Khang** – MSSV 23520708 |
-| Email | 23520708@gm.uit.edu.vn |
-| GitHub | [KhangPhanTZ](https://github.com/KhangPhanTZ) |
-
 Quản lý mạng cống ngầm 3D, phân tích điểm ngập và xử lý sự cố quanh chợ Thủ Đức (≈ 1,8 km²).
 
 - **3D thật sự:** địa hình TIN, mạng cống Node–Arc (`PointZ`/`LineStringZ`), công trình B-Rep (SUDM LOD1–2), hố ga CSG; nhìn xuyên đất trên Cesium.
