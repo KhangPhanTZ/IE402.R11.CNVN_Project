@@ -146,3 +146,31 @@ export function tinTerrainProvider(tin: FeatureCollection): TerrainProvider {
     },
   })
 }
+
+/** Bản đồ nền (Esri, miễn phí kèm ghi nguồn; OSM). "Xám nhạt" làm mặc định: tối giản để dữ liệu nổi bật. */
+export type BasemapKey = 'light' | 'dark' | 'streets' | 'satellite' | 'osm'
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
+export const BASEMAPS: Record<BasemapKey, { label: string; url: string; overlay?: string; credit: string; subdomains?: string[]; maxLevel: number; thumb: string }> = {
+  light: {
+    label: 'Xám nhạt', url: `${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+    overlay: `${ESRI}/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f4f4f4 0%,#d9dde2 100%)',
+  },
+  dark: {
+    label: 'Xám đậm', url: `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+    overlay: `${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#3f3f46 0%,#18181b 100%)',
+  },
+  streets: {
+    label: 'Đường phố', url: `${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, maxLevel: 19,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f3eedc 0%,#f2b48a 100%)',
+  },
+  satellite: {
+    label: 'Vệ tinh', url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, maxLevel: 19,
+    credit: 'Esri, Maxar, Earthstar Geographics', thumb: 'linear-gradient(135deg,#365314 0%,#78716c 60%,#44403c 100%)',
+  },
+  osm: {
+    label: 'OSM', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxLevel: 19,
+    credit: '© OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f2efe9 0%,#aad3df 100%)',
+  },
+}

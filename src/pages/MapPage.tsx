@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Viewer as CViewer } from 'cesium'
-import { ChevronsLeft, ChevronsRight, Info, Layers, Lock, PencilRuler, Search, Sigma, X } from 'lucide-react'
+import { AnimatePresence, animate, motion } from 'motion/react'
+import { ChevronsLeft, ChevronsRight, CircleDot, Eye, EyeOff, GitCommitHorizontal, Info, Layers, Lock, Map as MapIcon, PencilRuler, Search, Sigma, X } from 'lucide-react'
 import { MapView, flyTo, type PickInfo, type TerrainMode } from '@/map/MapView'
 import { BRepLayer, BuildingsLayer, FloodLayer, IncidentsLayer, ManholesLayer, OverlayLayer, PipesLayer, TinLayer, UtilitiesLayer, WaterSurface, ZonesLayer } from '@/map/layers'
 import { FeaturePopup } from '@/map/FeaturePopup'
@@ -10,11 +11,14 @@ import { EditPanel, type EditMode } from '@/map/EditPanel'
 import { ProfileChart } from '@/map/ProfileChart'
 import { ResultTable } from '@/map/ResultTable'
 import { MapLegend } from '@/map/MapLegend'
-import { bbox, LOD_DISTANCE, tinSampler } from '@/map/cesiumUtil'
+import { MapControls } from '@/map/MapControls'
+import { BasemapSwitcher } from '@/map/BasemapSwitcher'
+import { useCommandPalette, useRegisterCommands, type CmdGroup } from '@/components/CommandPalette'
+import { BASEMAPS, bbox, LOD_DISTANCE, tinSampler, type BasemapKey } from '@/map/cesiumUtil'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Input, Label, Select } from '@/components/ui/input'
+import { Label, Select } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Alert, Skeleton, Spinner } from '@/components/ui/feedback'
 import { useAuth } from '@/lib/auth'
@@ -31,17 +35,28 @@ const LAYERS: { key: LayerKey; label: string; swatch: string; staff?: boolean }[
   { key: 'incidents', label: 'Sự cố', swatch: '#dc2626' },
   { key: 'utilities', label: 'Công trình ngầm khác', swatch: '#10b981', staff: true },
   { key: 'buildings', label: 'Công trình (LOD1)', swatch: '#cbd5e1', staff: true },
-  { key: 'tin', label: 'Địa hình TIN', swatch: '#86c4a0', staff: true },
+  { key: 'tin', label: 'Tô màu cao độ TIN', swatch: '#86c4a0', staff: true },
   { key: 'defects', label: 'Lỗi lòng cống', swatch: SEVERITY[4], staff: true },
   { key: 'zones', label: 'Khu phụ trách', swatch: '#0ea5e9', staff: true },
 ]
 
+function CountUp({ to }: { to: number }) {
+  const [v, setV] = useState(0)
+  useEffect(() => {
+    const c = animate(0, to, { duration: 0.8, ease: 'easeOut', onUpdate: (x) => setV(Math.round(x)) })
+    return () => c.stop()
+  }, [to])
+  return <>{v}</>
+}
+
 function Kpi({ label, value, tone }: { label: string; value: number | string | undefined; tone?: 'danger' | 'warning' }) {
   return (
-    <div className="rounded-md border bg-surface px-2.5 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      {value === undefined ? <Skeleton className="mt-1 h-6 w-10" /> : (
-        <p className={cn('text-2xl font-semibold tabular', tone === 'danger' && 'text-danger', tone === 'warning' && 'text-warning')}>{value}</p>
+    <div className="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-900/[0.06]">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {value === undefined ? <Skeleton className="mt-1 h-7 w-12" /> : (
+        <p className={cn('mt-0.5 text-2xl font-semibold tracking-tight tabular', tone === 'danger' && 'text-danger', tone === 'warning' && 'text-warning')}>
+          {typeof value === 'number' ? <CountUp to={value} /> : value}
+        </p>
       )}
     </div>
   )
@@ -54,8 +69,8 @@ export default function MapPage() {
   const [viewer, setViewer] = useState<CViewer | null>(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [tab, setTab] = useState('layers')
-  const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: true, buildings: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
-  const [alpha, setAlpha] = useState(0.45)
+  const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: false, buildings: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
+  const [alpha, setAlpha] = useState(1)
   const [terrain, setTerrain] = useState<TerrainMode>('tin')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [override, setOverride] = useState<{ fc: FeatureCollection; label: string } | null>(null)
@@ -68,10 +83,11 @@ export default function MapPage() {
   const [pipeEnds, setPipeEnds] = useState<Feature[]>([])
   const [brep, setBrep] = useState<FeatureCollection | null>(null)
   const [defects, setDefects] = useState<FeatureCollection | null>(null)
-  const [query, setQuery] = useState('')
+  const [basemap, setBasemap] = useState<BasemapKey>('light')
+  const { setOpen: openPalette } = useCommandPalette()
 
-  const pipes = override ? { ...override.fc, features: override.fc.features.filter((f) => f.properties.layer === 'pipe') } : L.pipes
-  const manholes = override ? { ...override.fc, features: override.fc.features.filter((f) => f.properties.layer === 'manhole') } : L.manholes
+  const pipes = useMemo(() => (override ? { ...override.fc, features: override.fc.features.filter((f) => f.properties.layer === 'pipe') } : L.pipes), [override, L.pipes])
+  const manholes = useMemo(() => (override ? { ...override.fc, features: override.fc.features.filter((f) => f.properties.layer === 'manhole') } : L.manholes), [override, L.manholes])
 
   // Chỉ mục id → feature để tra cứu khi click
   const index = useMemo(() => {
@@ -84,7 +100,6 @@ export default function MapPage() {
 
   const bounds = useMemo(() => bbox(L.zones ?? L.tin ?? null), [L.zones, L.tin])
   const groundZ = useMemo(() => tinSampler(L.tin), [L.tin])
-  const codes = useMemo(() => [...(manholes?.features ?? []), ...(pipes?.features ?? [])].map((f) => f.properties.code as string).filter(Boolean).sort(), [manholes, pipes])
 
   useEffect(() => {
     if (vis.defects && !defects && isStaff) {
@@ -133,10 +148,19 @@ export default function MapPage() {
     if (f?.properties.layer !== 'building') setBrep(null)
   }
 
-  function search(code: string) {
-    const f = [...(manholes?.features ?? []), ...(pipes?.features ?? [])].find((x) => String(x.properties.code).toLowerCase() === code.trim().toLowerCase())
-    if (f) { focusOn(f); setQuery('') }
-  }
+
+
+  // Lệnh cho bảng ⌘K: tìm tài sản theo mã, bật/tắt lớp, đổi bản đồ nền
+  const commands: CmdGroup[] = useMemo(() => [
+    { heading: 'Hố ga & cống', items: [...(manholes?.features ?? []), ...(pipes?.features ?? [])].filter((f) => f.properties.code).map((f) => ({
+      id: f.id ?? f.properties.code, label: f.properties.code, keywords: f.properties.layer,
+      hint: f.properties.layer === 'pipe' ? `Cống${f.properties.diameter_mm ? ` D${f.properties.diameter_mm}` : ''}` : f.properties.kind === 'outfall' ? 'Cửa xả' : f.properties.kind === 'inlet' ? 'Hố thu' : 'Hố ga',
+      icon: f.properties.layer === 'pipe' ? <GitCommitHorizontal /> : <CircleDot />, run: () => focusOn(f) })) },
+    { heading: 'Lớp bản đồ', items: LAYERS.filter((l) => isStaff || !l.staff).map((l) => ({
+      id: `layer:${l.key}`, label: `${vis[l.key] ? 'Ẩn' : 'Hiện'} lớp ${l.label}`, icon: vis[l.key] ? <EyeOff /> : <Eye />, run: () => setVis((v) => ({ ...v, [l.key]: !v[l.key] })) })) },
+    { heading: 'Bản đồ nền', items: (Object.keys(BASEMAPS) as BasemapKey[]).map((k) => ({ id: `basemap:${k}`, label: `Bản đồ nền: ${BASEMAPS[k].label}`, icon: <MapIcon />, run: () => setBasemap(k) })) },
+  ], [manholes, pipes, vis, isStaff]) // eslint-disable-line react-hooks/exhaustive-deps
+  useRegisterCommands('map', commands)
 
   const draftOverlay: FeatureCollection | null = draft && mode === 'add-manhole'
     ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [draft.lon, draft.lat] }, properties: { __color: ANALYSIS.marker, __size: 14, __label: 'Hố ga mới' } }] }
@@ -146,7 +170,7 @@ export default function MapPage() {
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden', mode !== 'none' && 'map-picking')}>
-      <MapView alpha={alpha} terrain={isStaff ? terrain : 'ellipsoid'} tin={L.tin} onReady={setViewer} onPick={onPick}>
+      <MapView alpha={alpha} basemap={basemap} terrain={isStaff ? terrain : 'ellipsoid'} tin={L.tin} onReady={setViewer} onPick={onPick}>
         <TinLayer fc={L.tin} show={vis.tin && alpha > 0.02} alpha={alpha} />
         <BuildingsLayer fc={L.buildings} highlight={result?.highlight} show={vis.buildings} />
         <PipesLayer fc={pipes} highlight={result?.highlight} show={vis.pipes} />
@@ -203,14 +227,9 @@ export default function MapPage() {
               <Kpi label={isStaff ? 'Sự cố đang mở' : 'Sự cố của tôi'} value={role === 'anon' ? '—' : openIncidents} tone="danger" />
             </div>
 
-            {/* Tìm theo mã – thay thế bàn phím cho thao tác click bản đồ */}
-            <form className="relative" role="search" onSubmit={(e) => { e.preventDefault(); search(query) }}>
-              <Label htmlFor="code-search" className="sr-only">Tìm hố ga hoặc cống theo mã</Label>
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
-              <Input id="code-search" list="code-list" className="pl-8" placeholder="Tìm mã hố ga / cống, vd. HG-A001" value={query}
-                onChange={(e) => { setQuery(e.target.value); if (codes.includes(e.target.value)) search(e.target.value) }} />
-              <datalist id="code-list">{codes.map((c) => <option key={c} value={c} />)}</datalist>
-            </form>
+            <Button variant="outline" className="w-full justify-start text-subtle lg:hidden" onClick={() => openPalette(true)}>
+              <Search /> Tìm hố ga, cống theo mã…
+            </Button>
 
             <fieldset className="space-y-1">
               <legend className="section-title mb-1.5">Lớp dữ liệu</legend>
@@ -230,7 +249,7 @@ export default function MapPage() {
               </div>
               <Slider id="alpha" aria-label="Độ đục mặt đất" min={0} max={1} step={0.05} value={[alpha]} onValueChange={([v]) => setAlpha(v)} />
               <div className="flex gap-1.5">
-                {[{ v: 0, t: 'Nhìn xuyên đất' }, { v: 0.45, t: 'Bán trong suốt' }, { v: 1, t: 'Đặc' }].map((p) => (
+                {[{ v: 0, t: 'Nhìn xuyên đất' }, { v: 0.5, t: 'Bán trong suốt' }, { v: 1, t: 'Đặc' }].map((p) => (
                   <Button key={p.v} size="xs" variant={alpha === p.v ? 'secondary' : 'ghost'} onClick={() => setAlpha(p.v)}>{p.t}</Button>
                 ))}
               </div>
@@ -274,7 +293,13 @@ export default function MapPage() {
       </aside>
 
       {/* ---------------- Thanh trạng thái phía trên ---------------- */}
-      <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
+      <div className="pointer-events-none absolute left-1/2 top-3 flex w-[min(440px,calc(100%-2rem))] -translate-x-1/2 flex-col items-center gap-2 max-lg:hidden" aria-live="polite">
+        <button onClick={() => openPalette(true)} aria-label="Tìm kiếm (Ctrl K)"
+          className="glass-panel pointer-events-auto flex h-11 w-full items-center gap-3 rounded-full px-4 text-left text-sm text-subtle transition-shadow hover:shadow-e3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Search className="size-4 text-slate-500" aria-hidden />
+          <span className="flex-1 truncate">Tìm hố ga, cống, lớp bản đồ…</span>
+          <kbd className="rounded-md border bg-white px-1.5 py-0.5 text-xs font-medium text-slate-500">Ctrl K</kbd>
+        </button>
         {modeText && (
           <div className="pointer-events-auto flex items-center gap-3 rounded-full bg-slate-900 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-e3 animate-fade-in">
             <span className="size-2 animate-pulse rounded-full bg-yellow-400" aria-hidden />
@@ -293,18 +318,27 @@ export default function MapPage() {
       </div>
 
       {/* ---------------- Popup NN/KG/TG ---------------- */}
-      {selected && (
-        <div className="pointer-events-none absolute inset-x-3 bottom-3 sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-3">
-          <FeaturePopup feature={selected} onClose={() => { setSelected(null); setBrep(null) }}
-            onShowBRep={async (id) => setBrep(await rpc<FeatureCollection>('building_surfaces', { p_building_id: id }))} />
-        </div>
-      )}
+      <AnimatePresence>
+        {selected && (
+          <motion.div key={selected.id ?? 'sel'} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="pointer-events-none absolute inset-x-3 bottom-3 z-10 sm:inset-x-auto sm:bottom-auto sm:right-16 sm:top-3">
+            <FeaturePopup feature={selected} onClose={() => { setSelected(null); setBrep(null) }}
+              onShowBRep={async (id) => setBrep(await rpc<FeatureCollection>('building_surfaces', { p_building_id: id }))} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---------------- Điều khiển bản đồ ---------------- */}
+      <div className="pointer-events-none absolute bottom-8 right-3 z-10 flex flex-col items-end gap-2">
+        <BasemapSwitcher value={basemap} onChange={setBasemap} />
+        <MapControls viewer={viewer} />
+      </div>
 
       {/* ---------------- Chú giải ---------------- */}
-      {!result && !selected && <MapLegend className="absolute bottom-3 right-3 hidden md:block" staff={isStaff} />}
+      {!result && !selected && <MapLegend className="absolute bottom-8 right-16 hidden md:block" staff={isStaff} />}
 
       {/* ---------------- Kết quả / mặt cắt ---------------- */}
-      <div className={cn('pointer-events-none absolute bottom-3 right-3 space-y-2', panelOpen ? 'left-3 lg:left-[384px]' : 'left-3', selected && 'sm:right-[396px]')}>
+      <div className={cn('pointer-events-none absolute bottom-8 right-16 space-y-2', panelOpen ? 'left-3 lg:left-[384px]' : 'left-3', selected && 'sm:right-[452px]')}>
         {profile && <ProfileChart fc={profile} onClose={() => setProfile(null)} />}
         {result && result.key !== 'water' && (
           <ResultTable result={result} onClose={() => { setResult(null); setProfile(null) }}

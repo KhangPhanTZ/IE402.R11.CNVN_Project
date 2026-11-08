@@ -332,7 +332,7 @@ function groundPos(lon: number, lat: number, gz: GroundZ, lift = 0.6) {
   return gz ? pos(lon, lat, gz(lon, lat) + lift) : Cartesian3.fromDegrees(lon, lat)
 }
 
-export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show: boolean; groundZ?: GroundZ }) {
+export function FloodLayer({ fc, show, groundZ, labels = true }: { fc?: FeatureCollection; show: boolean; groundZ?: GroundZ; labels?: boolean }) {
   useDataSource(
     'flood',
     show,
@@ -351,7 +351,7 @@ export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show
             heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
-          label: {
+          label: !labels ? undefined : {
             text: `${p.max_depth_cm} cm`,
             font: '600 12px Inter, sans-serif',
             fillColor: Color.fromCssColorString('#0c4a6e'),
@@ -369,7 +369,7 @@ export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show
         })
       }
     },
-    [fc, groundZ],
+    [fc, groundZ, labels],
   )
   return null
 }

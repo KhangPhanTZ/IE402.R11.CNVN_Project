@@ -14,7 +14,7 @@ function Row({ color, label, shape = 'line' }: { color: string; label: string; s
 }
 
 export function MapLegend({ className, staff }: { className?: string; staff: boolean }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(() => window.innerHeight > 900)
   return (
     <section className={cn('map-panel w-52 p-0', className)} aria-label="Chú giải bản đồ">
       <button className="flex w-full items-center justify-between px-3 py-2 text-left" aria-expanded={open} onClick={() => setOpen(!open)}>

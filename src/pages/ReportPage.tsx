@@ -98,7 +98,7 @@ export default function ReportPage() {
         <MapView alpha={1} terrain="ellipsoid" onReady={setViewer} onPick={(p) => p.lon !== null && setPt({ lon: p.lon, lat: p.lat! })}>
           <PipesLayer fc={L.pipes} show />
           <ManholesLayer fc={L.manholes} show />
-          <FloodLayer fc={L.flood} show />
+          <FloodLayer fc={L.flood} show labels={false} />
           <IncidentsLayer fc={mine.data && { ...mine.data, features: mine.data.features.filter((f) => f.properties.status !== 'resolved') }} show />
           <OverlayLayer fc={marker} />
         </MapView>

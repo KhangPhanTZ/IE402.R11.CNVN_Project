@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { rpc } from './supabase'
 import type { FeatureCollection } from './types'
@@ -34,8 +35,8 @@ export function useMapLayers() {
   })
 
   // khách: tách lớp công khai thành cống / hố ga
-  const publicPipes = pub.data && { ...pub.data, features: pub.data.features.filter((f) => f.properties.layer === 'pipe') }
-  const publicManholes = pub.data && { ...pub.data, features: pub.data.features.filter((f) => f.properties.layer === 'manhole') }
+  const publicPipes = useMemo(() => pub.data && { ...pub.data, features: pub.data.features.filter((f) => f.properties.layer === 'pipe') }, [pub.data])
+  const publicManholes = useMemo(() => pub.data && { ...pub.data, features: pub.data.features.filter((f) => f.properties.layer === 'manhole') }, [pub.data])
   return {
     manholes: isStaff ? manholes.data : publicManholes,
     pipes: isStaff ? pipes.data : publicPipes,

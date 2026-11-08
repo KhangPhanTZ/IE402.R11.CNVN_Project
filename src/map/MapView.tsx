@@ -10,14 +10,15 @@ import {
   ImageryLayer,
   Ion,
   Math as CMath,
-  OpenStreetMapImageryProvider,
+  UrlTemplateImageryProvider,
+  Credit,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   type Viewer as CViewer,
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import type { FeatureCollection } from '@/lib/types'
-import { CENTER, CESIUM_TOKEN, HEIGHT_OFFSET, tinTerrainProvider } from './cesiumUtil'
+import { BASEMAPS, CENTER, CESIUM_TOKEN, HEIGHT_OFFSET, tinTerrainProvider, type BasemapKey } from './cesiumUtil'
 
 if (CESIUM_TOKEN) Ion.defaultAccessToken = CESIUM_TOKEN
 
@@ -33,6 +34,7 @@ interface Props {
   children?: ReactNode
   alpha: number // độ đục mặt đất (globe translucency)
   terrain: TerrainMode
+  basemap?: BasemapKey | 'ion'
   tin?: FeatureCollection
   onReady?: (v: CViewer) => void
   onPick?: (p: PickInfo) => void
@@ -48,14 +50,8 @@ function Init({ alpha, onReady, pickRef }: { alpha: number; onReady: (v: CViewer
   useEffect(() => {
     if (!v) return
     const scene = v.scene
-    v.imageryLayers.removeAll()
-    if (CESIUM_TOKEN) {
-      createWorldImageryAsync().then((p) => !v.isDestroyed() && v.imageryLayers.addImageryProvider(p))
-    } else {
-      v.imageryLayers.add(new ImageryLayer(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })))
-    }
     const globe = scene.globe
-    globe.baseColor = Color.fromCssColorString('#dfe7e1') // nền sáng khi chưa có ảnh nền
+    globe.baseColor = Color.fromCssColorString('#e5e7eb') // nền khi ảnh nền chưa tải
     globe.depthTestAgainstTerrain = true
     globe.translucency.enabled = true // NHÌN XUYÊN ĐẤT
     globe.translucency.frontFaceAlpha = alpha
@@ -95,7 +91,7 @@ function Init({ alpha, onReady, pickRef }: { alpha: number; onReady: (v: CViewer
   return null
 }
 
-export function MapView({ children, alpha, terrain, tin, onReady, onPick, className }: Props) {
+export function MapView({ children, alpha, terrain, basemap = 'light', tin, onReady, onPick, className }: Props) {
   const [viewer, setViewer] = useState<CViewer | null>(null)
   const pickRef = useRef(onPick)
   pickRef.current = onPick
@@ -107,6 +103,25 @@ export function MapView({ children, alpha, terrain, tin, onReady, onPick, classN
     viewer.scene.globe.translucency.backFaceAlpha = alpha
     viewer.scene.requestRender()
   }, [viewer, alpha])
+
+  // Bản đồ nền
+  useEffect(() => {
+    if (!viewer) return
+    let cancelled = false
+    viewer.imageryLayers.removeAll()
+    if (basemap === 'ion' && CESIUM_TOKEN) {
+      createWorldImageryAsync().then((p) => !cancelled && !viewer.isDestroyed() && viewer.imageryLayers.addImageryProvider(p))
+    } else {
+      const b = BASEMAPS[basemap === 'ion' ? 'light' : basemap]
+      viewer.imageryLayers.add(new ImageryLayer(new UrlTemplateImageryProvider({
+        url: b.url, subdomains: b.subdomains, maximumLevel: b.maxLevel, credit: new Credit(b.credit),
+      })))
+      if (b.overlay) // lớp nhãn tên đường, phường
+        viewer.imageryLayers.add(new ImageryLayer(new UrlTemplateImageryProvider({ url: b.overlay, maximumLevel: b.maxLevel })))
+    }
+    viewer.scene.requestRender()
+    return () => { cancelled = true }
+  }, [viewer, basemap])
 
   // Địa hình: Ellipsoid / TIN tuỳ biến / Cesium World Terrain (cần token)
   useEffect(() => {
@@ -122,7 +137,7 @@ export function MapView({ children, alpha, terrain, tin, onReady, onPick, classN
 
   return (
     <Viewer
-      className={className ?? 'absolute inset-0'}
+      className={className ?? `absolute inset-0 ${CESIUM_TOKEN ? '' : 'no-ion-logo'}`}
       animation={false}
       timeline={false}
       baseLayerPicker={false}

@@ -63,11 +63,17 @@
 
 @layer components {
   /* Panel nổi trên bản đồ: nền đặc để đủ tương phản (không dùng kính mờ) */
-  .map-panel { @apply rounded-lg border bg-white shadow-e2; }
+  .map-panel, .glass-panel {
+    @apply rounded-xl bg-white/90 ring-1 ring-slate-900/[0.07] backdrop-blur-xl backdrop-saturate-150;
+    box-shadow: 0 10px 30px -8px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+  }
   .section-title { @apply text-xs font-semibold uppercase tracking-wide text-subtle; }
 }
 
 /* Cesium */
-.cesium-viewer-bottom { opacity: 0.7; }
+.cesium-viewer-bottom { left: auto !important; right: 64px; bottom: 6px !important; opacity: 0.85; }
+.cesium-credit-textContainer, .cesium-credit-expand-link { font: 500 11px/1.4 'Inter Variable', sans-serif; color: #475569 !important; }
+.cesium-credit-expand-link { background: rgb(255 255 255 / 0.8); padding: 2px 6px; border-radius: 6px; }
+.no-ion-logo .cesium-credit-logoContainer { display: none !important; }
 .cesium-viewer-toolbar { top: 8px; right: 8px; }
 .map-picking canvas { cursor: crosshair !important; }
