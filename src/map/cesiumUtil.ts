@@ -13,7 +13,7 @@ import type { FeatureCollection } from '@/lib/types'
 export const CESIUM_TOKEN = (import.meta.env.VITE_CESIUM_TOKEN as string | undefined) || ''
 export const HEIGHT_OFFSET = Number(import.meta.env.VITE_HEIGHT_OFFSET ?? 0) || 0
 /** Tâm khu vực (xấp xỉ chợ Thủ Đức) – dùng khi chưa tải được dữ liệu */
-export const CENTER = { lon: 106.756, lat: 10.85 }
+export const CENTER = { lon: 106.7542, lat: 10.8502 }
 
 /** Ngưỡng LOD: gần hơn → ống 3D/khối CSG; xa hơn → đường/điểm */
 export const LOD_DISTANCE = 650
@@ -73,9 +73,14 @@ export function bbox(fc?: FeatureCollection | null): [number, number, number, nu
  * rồi cung cấp cho Cesium qua CustomHeightmapTerrainProvider ⇒ mặt địa cầu chính là mặt TIN,
  * và globe.translucency cho phép "nhìn xuyên đất" thấy cống/hố ga bên dưới.
  */
-export function tinTerrainProvider(tin: FeatureCollection, res = 256): TerrainProvider {
+const samplers = new WeakMap<FeatureCollection, ((lon: number, lat: number) => number) | null>()
+
+/** Raster hoá TIN (nội suy barycentric) → hàm lấy cao độ mặt đất tại (lon, lat) */
+export function tinSampler(tin?: FeatureCollection | null, res = 256): ((lon: number, lat: number) => number) | null {
+  if (!tin?.features.length) return null
+  if (samplers.has(tin)) return samplers.get(tin)!
   const bb = bbox(tin)
-  if (!bb) return new EllipsoidTerrainProvider()
+  if (!bb) return null
   const [w, s, e, n] = bb
   const grid = new Float32Array(res * res).fill(NaN)
   const dx = (e - w) / (res - 1)
@@ -102,15 +107,27 @@ export function tinTerrainProvider(tin: FeatureCollection, res = 256): TerrainPr
   let fallback = 0
   for (const v of grid) if (!Number.isNaN(v)) fallback = Math.max(fallback, v)
   for (let k = 0; k < grid.length; k++) if (Number.isNaN(grid[k])) grid[k] = fallback
-  const sample = (lon: number, lat: number) => {
+  const fn = (lon: number, lat: number) => {
     const fi = Math.max(0, Math.min(res - 1, (lon - w) / dx))
     const fj = Math.max(0, Math.min(res - 1, (lat - s) / dy))
     const i0 = Math.floor(fi), j0 = Math.floor(fj)
     const i1 = Math.min(res - 1, i0 + 1), j1 = Math.min(res - 1, j0 + 1)
     const u = fi - i0, v = fj - j0
     const g = (i: number, j: number) => grid[j * res + i]
-    return (g(i0, j0) * (1 - u) + g(i1, j0) * u) * (1 - v) + (g(i0, j1) * (1 - u) + g(i1, j1) * u) * v + HEIGHT_OFFSET
+    return (g(i0, j0) * (1 - u) + g(i1, j0) * u) * (1 - v) + (g(i0, j1) * (1 - u) + g(i1, j1) * u) * v
   }
+  samplers.set(tin, fn)
+  return fn
+}
+
+/**
+ * Terrain tuỳ biến dựng từ TIN (CustomHeightmapTerrainProvider) ⇒ mặt địa cầu chính là mặt TIN,
+ * và globe.translucency cho phép "nhìn xuyên đất" thấy cống/hố ga bên dưới.
+ */
+export function tinTerrainProvider(tin: FeatureCollection): TerrainProvider {
+  const z = tinSampler(tin)
+  if (!z) return new EllipsoidTerrainProvider()
+  const sample = (lon: number, lat: number) => z(lon, lat) + HEIGHT_OFFSET
   const size = 33
   const scheme = new GeographicTilingScheme()
   return new CustomHeightmapTerrainProvider({

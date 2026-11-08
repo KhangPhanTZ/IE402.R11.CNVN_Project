@@ -4,7 +4,7 @@
 
 - Tác giả: **KhangPhanTZ** – 23520708@gm.uit.edu.vn
 - Phạm vi: ≈ 1,82 km² (1 400 m × 1 300 m) quanh chợ Thủ Đức (Võ Văn Ngân, Kha Vạn Cân, Dương Văn Cam, Tô Ngọc Vân, Đặng Văn Bi).
-- Tâm khu vực: lấy từ Nominatim nếu truy cập được; **khi seed bản hiện tại, Nominatim không truy cập được nên dùng tọa độ xấp xỉ (10.850, 106.756)**.
+- Tâm khu vực: **chợ Thủ Đức theo Nominatim (10.850238, 106.754197)** – OSM way 499426667 (`amenity=marketplace`). Nếu không có cache và không truy cập được Nominatim thì seed dùng xấp xỉ (10.850, 106.756).
 - Stack: Vite + React + TypeScript, Tailwind + shadcn/ui, TanStack Query, React Router, CesiumJS (qua resium) · Supabase (Postgres + PostGIS, Auth, Storage, Realtime) · seed Python (psycopg, shapely).
 - Hệ tọa độ lưu trữ: **EPSG:32648** (UTM 48N, mét; Z = cao độ tuyệt đối, mét). Mọi RPC trả GeoJSON đã `ST_Transform` sang EPSG:4326 (giữ Z).
 
@@ -174,17 +174,19 @@ Ngoài ra: các hàm lớp dữ liệu (`layer_*`), `asset_history`, CRUD (`crea
 
 | Dữ liệu | Nguồn | Ghi chú |
 |---|---|---|
-| Tâm khu vực | Nominatim nếu có mạng; **bản seed hiện tại: xấp xỉ (10.850, 106.756)** | |
-| Đường | OSM/Overpass nếu có mạng; **bản seed hiện tại: MOCK** | Lưới ô phố giả quanh chợ, chỉ mượn **tên** đường thật (Võ Văn Ngân, Kha Vạn Cân, Dương Văn Cam, Tô Ngọc Vân, Đặng Văn Bi); các đường "(mock)" là giả. Vị trí không khớp thực địa. |
-| Nhà | OSM nếu có mạng; **bản seed hiện tại: MOCK** (`buildings.source = 'mock'`) | 500 nhà ngẫu nhiên tránh lòng đường; "Chợ Thủ Đức (mock footprint)". |
-| Địa hình | **MOCK** | ~800 điểm dạng lòng chảo (+0,8 m tại chợ → +3…+5 m ra ngoài). |
-| Mạng cống, hố ga, CSG, công trình ngầm, kiểm tra, lỗi, sự cố, sự kiện, quan trắc | **MOCK** (sinh có quy luật thủy lực) | Hướng dòng theo khoảng cách mạng tới cửa xả; D chọn theo lưu vực Voronoi; dốc 0,1–0,3%; chôn sâu ~1,5–3 m. |
-| Điểm ngập (6) | Tên đường/khu vực **được báo chí nhắc tới là điểm ngập**; **tọa độ, độ sâu, ngày là xấp xỉ** | `source_url` hiện là **liên kết tìm kiếm**, không phải bài báo cụ thể – cần thay bằng URL bài báo đã kiểm chứng trước khi nộp. |
+| Tâm khu vực | **Thật** – Nominatim (chợ Thủ Đức, OSM way 499426667) | Lưu trong `scripts/data/osm_thuduc.json`. |
+| Đường | **Thật** – OSM/Overpass (tải ngày 08/11/2026, lưu cache `scripts/data/osm_thuduc.json`) | Mạng cống đặt dọc tim các đường OSM: Võ Văn Ngân, Kha Vạn Cân, Tô Ngọc Vân, Đặng Văn Bi, Dương Văn Cam, Hồ Văn Tư, Chương Dương, Lê Văn Ninh, các đường số và hẻm… (≈ 9,4 km). |
+| Nhà | **Hình dạng thật** – 500 footprint OSM gần chợ nhất + đa giác chợ Thủ Đức | Số tầng lấy từ `building:levels` nếu có, nếu không thì **giả định**; tầng hầm, năm xây là **mock**. |
+| Địa hình | **MOCK** | ~800 điểm dạng lòng chảo (+0,8 m tại chợ → +3…+5 m ra ngoài); không phải DEM thật. |
+| Mạng cống, hố ga, CSG, công trình ngầm, kiểm tra, lỗi, sự cố, sự kiện, quan trắc | **MOCK** (sinh có quy luật thủy lực trên đường thật) | Hướng dòng theo khoảng cách mạng tới cửa xả; D chọn theo lưu vực Voronoi; dốc 0,1–0,3%; chôn sâu ≥ 1,5 m (+ D + 0,9 m); nơi mặt đất dốc ngược hướng dòng thì hạ sâu về hạ lưu. **Không phải bản vẽ hoàn công thật** của mạng thoát nước Thủ Đức. |
+| Điểm ngập (6) | Tên đường/khu vực **được báo chí nhắc tới là điểm ngập**; vị trí đặt lên đúng tuyến đường OSM theo tên (giao lộ nếu có 2 tên); **độ sâu, ngày là xấp xỉ** | `source_url` hiện là **liên kết tìm kiếm**, không phải bài báo cụ thể – cần thay bằng URL bài báo đã kiểm chứng trước khi nộp. |
 | Kịch bản mưa | Giả định (50/80/120 mm/h → mực nước 1,2/1,6/2,1 m) | |
 
-Số bản ghi sau khi seed (bản hiện tại): terrain_points 800 · terrain_tin 1 566 · buildings 500 (≈20% có tầng hầm) · building_surface 3 115 · pipe_materials 3 · **manholes 207 hiện hành (3 cửa xả, 15 hố thu)** · csg_node 1 035 · **pipes 231 hiện hành** (+2 bản lịch sử) · utilities 20 · inspections 120 · defects 300 · flood_points 6 · rain_scenarios 3 · water_obs 17 664 (92 ngày × 96 × 2 trạm) · incident_reports 150 · asset_events 500.
+Dữ liệu OSM © OpenStreetMap contributors, giấy phép ODbL 1.0. Seed đọc cache `scripts/data/osm_thuduc.json` (chạy được không cần mạng); tải lại từ Overpass bằng `OSM_REFRESH=1`, ép sinh dữ liệu mock bằng `SEED_OFFLINE=1` và xoá/đổi tên file cache.
 
-**Lỗi cài sẵn để demo** (đã kiểm chứng bằng `test_rpc.ts`): 3 cống dốc ngược/bằng (Q1), 2 cống chôn nông (Q2), 3 điểm va chạm với công trình ngầm (Q3), 1 cống nâng cấp D800 → D1200 từ 15/06/2025 (Q9, tab TG có 3 phiên bản).
+Số bản ghi sau khi seed (bản hiện tại): terrain_points 800 · terrain_tin 1 566 · buildings 500 (100 có tầng hầm) · building_surface 3 607 · pipe_materials 3 · **manholes 221 hiện hành (3 cửa xả, 15 hố thu)** · csg_node 1 105 · **pipes 226 hiện hành** (+2 bản lịch sử) · utilities 20 · inspections 120 · defects 300 · flood_points 6 · rain_scenarios 3 · water_obs 17 664 (92 ngày × 96 × 2 trạm) · incident_reports 150 · asset_events 500.
+
+**Lỗi cài sẵn để demo** (đã kiểm chứng bằng `test_rpc.ts`): 3 cống dốc ngược/bằng (Q1), 3 cống chôn nông (Q2), 3 điểm va chạm với công trình ngầm (Q3), 1 cống nâng cấp D800 → D1200 từ 15/06/2025 (Q9, tab TG có 3 phiên bản).
 
 ---
 
@@ -253,14 +255,14 @@ Ghi chú thiết kế: `manholes`/`pipes` có khóa phiên bản `vid` và đị
 
 Script: `scripts/explain_knn.sql` (kết quả thật trên Postgres 16 + PostGIS 3, máy phát triển).
 
-**Bảng `manholes` (207 dòng)** – có index:
+**Bảng `manholes` (221 dòng hiện hành)** – có index:
 
 ```
 Limit (actual time=0.087..0.090 rows=3 loops=1)
   ->  Index Scan using manholes_geom_gix on manholes (actual time=0.086..0.089 rows=3 loops=1)
         Order By: (geom <-> '...'::geometry)
         Filter: ((valid_to IS NULL) AND (tx_to IS NULL))
-Execution Time: 0.121 ms
+Execution Time: 0.107 ms
 ```
 
 Không có index (DROP trong transaction rồi ROLLBACK):
@@ -269,19 +271,19 @@ Không có index (DROP trong transaction rồi ROLLBACK):
 Limit (actual time=0.091..0.092 rows=3 loops=1)
   ->  Sort  Sort Method: top-N heapsort  Memory: 25kB
         ->  Seq Scan on manholes (actual time=0.009..0.063 rows=207 loops=1)
-Execution Time: 0.105 ms
+Execution Time: 0.106 ms
 ```
 
-Với 207 dòng hai cách tương đương, vì cả bảng nằm gọn trong 4 trang bộ nhớ.
+Với 221 hố ga, hai cách tương đương, vì cả bảng nằm gọn trong 4 trang bộ nhớ.
 
 **Bảng thử 200 000 điểm** (cùng phạm vi):
 
 | | Kế hoạch | Thời gian thực thi |
 |---|---|---|
-| Không index | `Seq Scan` 200 000 dòng → `Sort (top-N heapsort)` | **75,7 ms** |
-| Có index GIST | `Index Scan using knn_bench_geom_idx`, `Order By: geom <-> …` | **0,12 ms** |
+| Không index | `Seq Scan` 200 000 dòng → `Sort (top-N heapsort)` | **73,8 ms** |
+| Có index GIST | `Index Scan using knn_bench_geom_idx`, `Order By: geom <-> …` | **0,10 ms** |
 
-Nhận xét: toán tử `<->` kết hợp `ORDER BY … LIMIT k` cho phép GIST duyệt cây theo khoảng cách (index-assisted KNN), không cần tính khoảng cách cho mọi dòng. Lợi ích thể hiện rõ khi dữ liệu lớn (≈ 600 lần ở 200k điểm).
+Nhận xét: toán tử `<->` kết hợp `ORDER BY … LIMIT k` cho phép GIST duyệt cây theo khoảng cách (index-assisted KNN), không cần tính khoảng cách cho mọi dòng. Lợi ích thể hiện rõ khi dữ liệu lớn (≈ 700 lần ở 200k điểm).
 
 ---
 
@@ -352,7 +354,8 @@ src/
 
 ## 13. Hạn chế đã biết
 
-- Bản seed trong repo được sinh khi **không truy cập được OSM/Nominatim**, nên đường/nhà là mock; chạy lại `seed.py` ở máy có mạng sẽ tự dùng dữ liệu OSM (nhánh OSM chưa được kiểm thử trên dữ liệu thật).
+- Mạng cống bám đường thật nhưng vị trí hố ga, đường kính, cao độ là **mô phỏng**; địa hình là mặt lòng chảo giả định, chưa dùng DEM thật.
+- Phân vùng Zone A/B là đường chia đôi theo trục Bắc–Nam (giả định), không theo ranh phường.
 - Đã kiểm thử trên Postgres 16 + PostGIS 3 (qua shim) và `mini-supabase`; **chưa chạy thử trên `supabase start`/Supabase Cloud** trong môi trường phát triển này (không có Docker). Realtime chưa được kiểm thử đầu-cuối vì `mini-supabase` không hỗ trợ.
 - Cao độ dữ liệu được hiển thị như cao độ trên ellipsoid; khi dùng Cesium World Terrain cần chỉnh `VITE_HEIGHT_OFFSET`.
 - Mô hình thủy lực Q8 là ước lượng tĩnh (phương pháp hợp lý + Manning chảy đầy), không phải mô phỏng động.

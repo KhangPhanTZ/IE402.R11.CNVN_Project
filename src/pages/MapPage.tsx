@@ -9,7 +9,7 @@ import { AnalysisPanel, type AnalysisResult } from '@/map/AnalysisPanel'
 import { EditPanel, type EditMode } from '@/map/EditPanel'
 import { ProfileChart } from '@/map/ProfileChart'
 import { ResultTable } from '@/map/ResultTable'
-import { bbox, LOD_DISTANCE } from '@/map/cesiumUtil'
+import { bbox, LOD_DISTANCE, tinSampler } from '@/map/cesiumUtil'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
@@ -58,6 +58,7 @@ export default function MapPage() {
   }, [pipes, manholes, L.buildings, L.utilities, L.flood, L.incidents, L.zones, result, defects])
 
   const bounds = useMemo(() => bbox(L.zones ?? L.tin ?? null), [L.zones, L.tin])
+  const groundZ = useMemo(() => tinSampler(L.tin), [L.tin])
 
   useEffect(() => {
     if (vis.defects && !defects && isStaff) {
@@ -108,11 +109,11 @@ export default function MapPage() {
         <PipesLayer fc={pipes} highlight={result?.highlight} show={vis.pipes} />
         <ManholesLayer fc={manholes} highlight={result?.highlight} show={vis.manholes} pickedIds={pipeEnds.map((f) => f.properties.id)} />
         <UtilitiesLayer fc={L.utilities} highlight={result?.highlight} show={vis.utilities} />
-        <FloodLayer fc={L.flood} show={vis.flood} />
-        <IncidentsLayer fc={L.incidents} show={vis.incidents} />
+        <FloodLayer fc={L.flood} show={vis.flood} groundZ={groundZ} />
+        <IncidentsLayer fc={L.incidents} show={vis.incidents} groundZ={groundZ} />
         <ZonesLayer fc={L.zones} show={vis.zones} />
-        {vis.defects && <OverlayLayer fc={defects} />}
-        <OverlayLayer fc={result?.overlay ?? draftOverlay} />
+        {vis.defects && <OverlayLayer fc={defects} groundZ={groundZ} />}
+        <OverlayLayer fc={result?.overlay ?? draftOverlay} groundZ={groundZ} />
         <BRepLayer fc={brep} />
         <WaterSurface level={waterLevel} bounds={bounds} />
       </MapView>

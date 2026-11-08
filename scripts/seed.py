@@ -6,8 +6,9 @@ Seed dữ liệu cho đồ án IE402 – mạng cống thoát nước & điểm 
     DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres python scripts/seed.py
 
 - Tâm khu vực: thử Nominatim; nếu không truy cập được dùng xấp xỉ (10.850, 106.756).
-- Đường & nhà: thử Overpass (OSM); nếu không có mạng thì sinh lưới đường/nhà MOCK
-  (bảng buildings.source = 'mock' | 'osm').
+- Đường & nhà: đọc cache OSM `scripts/data/osm_thuduc.json` (© OpenStreetMap contributors, ODbL);
+  nếu chưa có cache thì tải từ Overpass (thử nhiều mirror) rồi lưu lại; nếu vẫn không có thì sinh MOCK
+  (buildings.source = 'osm' | 'mock'). Biến môi trường: OSM_REFRESH=1 (tải lại), SEED_OFFLINE=1 (không gọi mạng).
 - Địa hình: ~800 điểm dạng "lòng chảo" thấp nhất (+0,8 m) ở chợ, cao dần ra ngoài (+3..+5 m);
   TIN sinh trong PostGIS bằng ST_DelaunayTriangles.
 - Cố ý cài lỗi để demo: 3 cống dốc ngược, 3 cống chôn nông, 3 va chạm 3D, 1 cống nâng cấp D800→D1200.
@@ -62,11 +63,32 @@ def http_get(url: str, data: bytes | None = None, timeout: int = 20) -> bytes:
         return r.read()
 
 
-def get_center() -> tuple[float, float]:
+from pathlib import Path
+
+# Dữ liệu OSM tải về được lưu lại để seed lặp lại được khi không có mạng (© OpenStreetMap contributors, ODbL)
+OSM_CACHE = Path(os.environ.get("OSM_FILE", Path(__file__).parent / "data" / "osm_thuduc.json"))
+OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter"]
+
+
+def load_cache() -> dict | None:
+    if OSM_CACHE.exists() and os.environ.get("OSM_REFRESH") != "1":
+        return json.loads(OSM_CACHE.read_text(encoding="utf-8"))
+    return None
+
+
+def get_center(cache: dict | None) -> tuple[float, float]:
+    if cache and cache.get("center"):
+        lat, lon = cache["center"]
+        INFO["center"] = f"Nominatim ({lat:.6f}, {lon:.6f}) – từ cache {OSM_CACHE.name}"
+        return lat, lon
     try:
-        q = urllib.parse.quote("Chợ Thủ Đức, Thành phố Thủ Đức, Hồ Chí Minh")
-        res = json.loads(http_get(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1"))
-        lat, lon = float(res[0]["lat"]), float(res[0]["lon"])
+        if os.environ.get("SEED_OFFLINE") == "1":
+            raise ConnectionError("SEED_OFFLINE=1")
+        q = urllib.parse.quote("Chợ Thủ Đức, Thủ Đức, Hồ Chí Minh")
+        res = json.loads(http_get(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=5&countrycodes=vn"))
+        best = next((r for r in res if r.get("type") == "marketplace"), res[0])
+        lat, lon = float(best["lat"]), float(best["lon"])
         INFO["center"] = f"Nominatim ({lat:.6f}, {lon:.6f})"
         return lat, lon
     except Exception as e:  # noqa: BLE001
@@ -75,18 +97,30 @@ def get_center() -> tuple[float, float]:
         return 10.850, 106.756
 
 
-def fetch_osm(bbox_ll: tuple[float, float, float, float]) -> dict | None:
-    s, w, n, e = bbox_ll
-    q = f"""[out:json][timeout:25];
-    (way["highway"~"primary|secondary|tertiary|residential|unclassified"]({s},{w},{n},{e});
-     way["building"]({s},{w},{n},{e}););
-    out geom;"""
-    try:
-        raw = http_get("https://overpass-api.de/api/interpreter", data=urllib.parse.urlencode({"data": q}).encode(), timeout=40)
-        return json.loads(raw)
-    except Exception as e:  # noqa: BLE001
-        log(f"Overpass lỗi ({type(e).__name__}) → sinh dữ liệu MOCK")
+def fetch_osm(bbox_ll: tuple[float, float, float, float], cache: dict | None) -> dict | None:
+    if cache and cache.get("elements"):
+        log(f"Dùng dữ liệu OSM đã lưu: {OSM_CACHE} ({len(cache['elements'])} phần tử)")
+        return cache
+    if os.environ.get("SEED_OFFLINE") == "1":
+        log("SEED_OFFLINE=1 → bỏ qua Overpass, sinh dữ liệu MOCK")
         return None
+    s, w, n, e = bbox_ll
+    q = f"""[out:json][timeout:180];
+    (way["highway"~"^(primary|secondary|tertiary|unclassified|residential|living_street)$"]({s},{w},{n},{e});
+     way["building"]({s},{w},{n},{e});
+     way["amenity"="marketplace"]({s},{w},{n},{e}););
+    out geom;"""
+    for url in OVERPASS:
+        try:
+            log(f"Tải OSM từ {url} …")
+            raw = http_get(url, data=urllib.parse.urlencode({"data": q}).encode(), timeout=200)
+            data = json.loads(raw)
+            if data.get("elements"):
+                return data
+        except Exception as e:  # noqa: BLE001
+            log(f"  lỗi {type(e).__name__}: {e}")
+    log("Không tải được OSM → sinh dữ liệu MOCK")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -136,26 +170,68 @@ MOCK_STREETS = [
 ]
 
 
-def osm_streets(osm: dict, to_local) -> list[tuple[str, list[tuple[float, float]]]]:
-    rank = {"primary": 0, "secondary": 1, "tertiary": 2, "residential": 3, "unclassified": 4}
+RANK = {"primary": 0, "secondary": 1, "tertiary": 2, "unclassified": 3, "residential": 3, "living_street": 4}
+
+
+def osm_streets(osm: dict, conv: dict, target_m: float = 9300) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Chọn đường thật cho mạng cống: lấy toàn bộ đường chính (primary–tertiary), rồi thêm dần
+    đường nội bộ NỐI VÀO mạng đã chọn (dài trước) tới khi đủ ~target_m mét (~200 hố ga cách 46 m)."""
+    clip = box(-HALF_W + 25, -HALF_H + 25, HALF_W - 25, HALF_H - 25)
     ways = []
     for el in osm.get("elements", []):
         hw = el.get("tags", {}).get("highway")
-        if el.get("type") == "way" and hw in rank and "geometry" in el:
-            coords = [to_local(g["lon"], g["lat"]) for g in el["geometry"]]
-            line = LineString(coords).intersection(box(-HALF_W + 20, -HALF_H + 20, HALF_W - 20, HALF_H - 20))
-            if line.is_empty or line.length < 40:
-                continue
-            for part in getattr(line, "geoms", [line]):
-                ways.append((rank[hw], el["tags"].get("name", hw), list(part.coords)))
-    ways.sort(key=lambda w: (w[0], -LineString(w[2]).length))
-    out, total = [], 0.0
-    for _, name, coords in ways:              # giữ đường chính trước tới khi đủ ~200 hố ga
-        if total > 8600:
+        if el.get("type") != "way" or hw not in RANK or "geometry" not in el:
+            continue
+        line = LineString([conv[(g["lon"], g["lat"])] for g in el["geometry"]]).intersection(clip)
+        for part in getattr(line, "geoms", [line]):
+            if part.geom_type == "LineString" and part.length >= 25:
+                ways.append({"rank": RANK[hw], "name": el["tags"].get("name", f"{hw} (OSM {el['id']})"), "line": part})
+    if not ways:
+        return []
+    from shapely.ops import snap
+    # Mạng phát triển từ tuyến đường lớn gần chợ nhất; chỉ thêm đoạn CHẠM vào mạng hiện có
+    # (ưu tiên đường cấp cao, rồi đoạn dài) ⇒ mạng cống luôn liên thông, bám đúng đường thật
+    majors = [w for w in ways if w["rank"] <= 2] or ways
+    first = min(majors, key=lambda w: w["line"].distance(Point(0, 0)))
+    chosen = [first]
+    rest = [w for w in ways if w is not first]
+    total = first["line"].length
+    net_geom = first["line"]
+    while total < target_m:
+        touching = [w for w in rest if w["line"].distance(net_geom) < 0.5]
+        if not touching:
             break
-        out.append((name, coords))
-        total += LineString(coords).length
-    return out
+        w = min(touching, key=lambda w: (w["rank"], -w["line"].length))
+        w["line"] = snap(w["line"], net_geom, 0.5)        # khử sai số nút giao
+        chosen.append(w)
+        rest.remove(w)
+        total += w["line"].length
+        net_geom = unary_union([net_geom, w["line"]])
+    log(f"Chọn {len(chosen)}/{len(ways)} đoạn đường OSM, tổng {total:.0f} m")
+    return [(w["name"], list(w["line"].coords)) for w in chosen]
+
+
+def snap_to_street(streets, names: list[str], near=(0.0, 0.0)):
+    """Điểm trên đường có tên chứa names[0] gần `near` nhất; nếu có names[1] thì lấy giao lộ của 2 đường."""
+    def lines(nm):
+        key = nm.lower()
+        return [LineString(c) for n, c in streets if key in n.lower()]
+    a = lines(names[0])
+    if not a:
+        return None
+    ga = unary_union(a)
+    if len(names) > 1:
+        b = lines(names[1])
+        if b:
+            inter = ga.intersection(unary_union(b))
+            if not inter.is_empty:
+                pts = [g for g in getattr(inter, "geoms", [inter]) if g.geom_type == "Point"]
+                if pts:
+                    p = min(pts, key=lambda q: q.distance(Point(near)))
+                    return (p.x, p.y)
+    from shapely.ops import nearest_points
+    p = nearest_points(ga, Point(near))[0]
+    return (p.x, p.y)
 
 
 class Network:
@@ -290,6 +366,24 @@ def design_network(net: Network, rim: dict) -> dict:
         hi = min(inv[p["to"]] + 0.003 * p["L"] for p in outs)
         want = rim[k] - target
         inv[k] = max(lo, min(hi, want)) if lo <= hi else lo
+    # Địa hình thật có chỗ mặt đất thấp dần ngược hướng dòng chảy ⇒ hố ga quá nông.
+    # Lặp: hạ hố ga nông về độ sâu tối thiểu, rồi lan xuống hạ lưu để giữ dốc ≥ 0,1%.
+    upstream_first = sorted(keys, key=lambda k: -dist[k])
+    for _ in range(50):
+        changed = False
+        for k in keys:
+            dmin = max(1.5, dmax[k] / 1000 + 0.9)
+            if rim[k] - inv[k] < dmin - 1e-6:
+                inv[k] = rim[k] - dmin
+                changed = True
+        for k in upstream_first:
+            for p in out_edges[k]:
+                need = inv[k] - 0.001 * p["L"]
+                if inv[p["to"]] > need + 1e-9:
+                    inv[p["to"]] = need
+                    changed = True
+        if not changed:
+            break
     for p in pipes:
         p["z_up"], p["z_dn"] = inv[p["from"]], inv[p["to"]]
     return {"pipes": pipes, "inv": inv, "outfalls": outfalls, "dist": dist, "dmax": dmax}
@@ -298,17 +392,21 @@ def design_network(net: Network, rim: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 5. Nhà (mock) + bề mặt SUDM
 # ---------------------------------------------------------------------------
-def gen_buildings_mock(street_lines: list[LineString], n: int = 500) -> list[dict]:
-    roads = unary_union([l.buffer(13) for l in street_lines])
-    placed: list[Polygon] = []
-    out = []
-    # chợ Thủ Đức (công trình lớn ở tâm)
-    market = box(BOWL_CENTER[0] - 35, BOWL_CENTER[1] - 18, BOWL_CENTER[0] + 35, BOWL_CENTER[1] + 30)
-    market = market.difference(roads).buffer(0)
-    if market.geom_type == "MultiPolygon":
-        market = max(market.geoms, key=lambda g: g.area)
-    placed.append(market)
-    out.append({"name": "Chợ Thủ Đức (mock footprint)", "poly": market, "floors": 2, "basement": False, "year": 1998})
+def gen_buildings_mock(street_lines: list[LineString], n: int = 500, existing: list[dict] | None = None) -> list[dict]:
+    """Sinh nhà giả tránh lòng đường và tránh các nhà đã có (vd. nhà OSM)."""
+    roads = unary_union([l.buffer(9) for l in street_lines])
+    out = list(existing or [])
+    placed: list[Polygon] = [b["poly"] for b in out]
+    if not any("Chợ Thủ Đức" in (b.get("name") or "") for b in out):
+        market = box(BOWL_CENTER[0] - 35, BOWL_CENTER[1] - 18, BOWL_CENTER[0] + 35, BOWL_CENTER[1] + 30)
+        market = market.difference(roads).buffer(0)
+        if placed:
+            market = market.difference(unary_union([p.buffer(1.5) for p in placed])).buffer(0)
+        if market.geom_type == "MultiPolygon":
+            market = max(market.geoms, key=lambda g: g.area)
+    if not any("Chợ Thủ Đức" in (b.get("name") or "") for b in out) and market.area > 400:
+        placed.append(market)
+        out.append({"name": "Chợ Thủ Đức (mock footprint)", "poly": market, "floors": 2, "basement": False, "year": 1998, "source": "mock"})
     tries = 0
     while len(out) < n and tries < 60000:
         tries += 1
@@ -325,7 +423,7 @@ def gen_buildings_mock(street_lines: list[LineString], n: int = 500) -> list[dic
         placed.append(poly)
         r = RNG.random()
         floors = RNG.randint(1, 3) if r < 0.6 else RNG.randint(4, 6) if r < 0.9 else RNG.randint(7, 12)
-        out.append({"name": None, "poly": poly, "floors": floors, "basement": None, "year": RNG.randint(1985, 2023)})
+        out.append({"name": None, "poly": poly, "floors": floors, "basement": None, "year": RNG.randint(1985, 2023), "source": "mock"})
     # 20% có tầng hầm (ưu tiên nhà cao tầng)
     cand = [b for b in out if b["basement"] is None]
     cand.sort(key=lambda b: -(b["floors"] + RNG.random() * 4))
@@ -334,31 +432,38 @@ def gen_buildings_mock(street_lines: list[LineString], n: int = 500) -> list[dic
         b["basement"] = i < nb
     for i, b in enumerate(out):
         if b["name"] is None:
-            b["name"] = f"Nhà {i:03d}" if b["floors"] < 7 else f"Tòa nhà {i:03d}"
+            b["name"] = (f"Nhà OSM {i:03d}" if b.get("source") == "osm" else f"Nhà {i:03d}") if b["floors"] < 7 else f"Tòa nhà {i:03d}"
     return out
 
 
-def osm_buildings(osm: dict, to_local, street_lines) -> list[dict]:
+def osm_buildings(osm: dict, conv: dict, limit: int = 500) -> list[dict]:
+    area = box(-HALF_W, -HALF_H, HALF_W, HALF_H)
     out = []
     for el in osm.get("elements", []):
-        if el.get("type") == "way" and "building" in el.get("tags", {}) and "geometry" in el:
-            coords = [to_local(g["lon"], g["lat"]) for g in el["geometry"]]
-            if len(coords) < 4:
-                continue
-            poly = Polygon(coords).buffer(0)
-            if poly.is_empty or poly.geom_type != "Polygon" or not box(-HALF_W, -HALF_H, HALF_W, HALF_H).contains(poly):
-                continue
-            lv = el["tags"].get("building:levels")
-            floors = int(float(lv)) if lv and lv.replace(".", "").isdigit() else RNG.randint(1, 4)
-            out.append({"name": el["tags"].get("name"), "poly": poly, "floors": max(1, min(floors, 40)),
-                        "basement": None, "year": RNG.randint(1985, 2023)})
-        if len(out) >= 500:
+        tags = el.get("tags", {})
+        if el.get("type") != "way" or "geometry" not in el or not ("building" in tags or tags.get("amenity") == "marketplace"):
+            continue
+        coords = [conv[(g["lon"], g["lat"])] for g in el["geometry"]]
+        if len(coords) < 4:
+            continue
+        poly = Polygon(coords).buffer(0)
+        if poly.is_empty or poly.geom_type != "Polygon" or poly.area < 12 or not area.contains(poly):
+            continue
+        poly = poly.simplify(0.3)
+        lv = tags.get("building:levels")
+        floors = int(float(lv)) if lv and lv.replace(".", "").isdigit() else RNG.choice([1, 2, 2, 3, 3, 4])
+        name = tags.get("name") or ("Chợ Thủ Đức" if tags.get("amenity") == "marketplace" else None)
+        out.append({"name": name, "poly": poly, "floors": max(1, min(floors, 40)), "basement": None,
+                    "year": RNG.randint(1985, 2023), "source": "osm"})
+    # ưu tiên công trình gần chợ nếu nhiều hơn giới hạn; bỏ các nhà chồng lấn nhau
+    out.sort(key=lambda b: b["poly"].centroid.distance(Point(0, 0)))
+    keep: list[dict] = []
+    for b in out:
+        if len(keep) >= limit:
             break
-    nb = round(0.2 * len(out))
-    for i, b in enumerate(sorted(out, key=lambda b: -b["floors"])):
-        b["basement"] = i < nb
-        b["name"] = b["name"] or f"Nhà OSM {i:03d}"
-    return out
+        if not any(b["poly"].intersects(k["poly"]) for k in keep[-200:]):
+            keep.append(b)
+    return keep
 
 
 def surfaces(poly: Polygon, base: float, height: float, lod2: bool) -> list[tuple[str, int, list]]:
@@ -424,7 +529,9 @@ def rand_dt(start: datetime, end: datetime) -> datetime:
 # MAIN
 # ---------------------------------------------------------------------------
 def main() -> None:
-    lat0, lon0 = get_center()
+    global BOWL_CENTER
+    cache = load_cache()
+    lat0, lon0 = get_center(cache)
     conn = psycopg.connect(DATABASE_URL, autocommit=False)
     cur = conn.cursor()
     cur.execute("set search_path = public, extensions")
@@ -437,14 +544,30 @@ def main() -> None:
     # bbox lat/lon cho Overpass
     cur.execute("""select ST_YMin(e), ST_XMin(e), ST_YMax(e), ST_XMax(e) from
                    (select ST_Transform(ST_MakeEnvelope(%s,%s,%s,%s,32648),4326) e) s""",
-                (ox - HALF_W, oy - HALF_H, ox + HALF_W, oy + HALF_H))
+                (ox - HALF_W - 50, oy - HALF_H - 50, ox + HALF_W + 50, oy + HALF_H + 50))
     bbox_ll = cur.fetchone()
-    osm = fetch_osm(bbox_ll)
+    osm = fetch_osm(bbox_ll, cache)
+    if osm and not cache:
+        OSM_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        keep = {"center": [lat0, lon0], "bbox": list(bbox_ll), "fetched_at": NOW.isoformat(),
+                "attribution": "© OpenStreetMap contributors, ODbL 1.0", "elements": osm["elements"]}
+        OSM_CACHE.write_text(json.dumps(keep, ensure_ascii=False), encoding="utf-8")
+        log(f"Đã lưu dữ liệu OSM vào {OSM_CACHE}")
 
-    def to_local(lon, lat):
-        cur.execute("select ST_X(g)-%s, ST_Y(g)-%s from (select ST_Transform(ST_SetSRID(ST_MakePoint(%s,%s),4326),32648) g) s",
-                    (ox, oy, lon, lat))
-        return cur.fetchone()
+    # Đổi toạ độ lon/lat → hệ cục bộ (UTM48N − tâm) theo lô, bằng ST_Transform trong PostGIS
+    conv: dict = {}
+    if osm:
+        lls = list({(g["lon"], g["lat"]) for el in osm["elements"] for g in el.get("geometry", [])})
+        cur.execute("""select ST_X(g) - %s, ST_Y(g) - %s from (
+                         select ST_Transform(ST_SetSRID(ST_MakePoint(lon, lat), 4326), 32648) g, i
+                         from unnest(%s::float8[], %s::float8[]) with ordinality t(lon, lat, i)) s order by i""",
+                    (ox, oy, [a for a, _ in lls], [b for _, b in lls]))
+        conv = {ll: xy for ll, xy in zip(lls, cur.fetchall())}
+    streets = osm_streets(osm, conv) if osm else []
+    use_osm = len(streets) >= 5
+    if use_osm:
+        BOWL_CENTER = (0.0, 0.0)   # tâm = chợ Thủ Đức theo Nominatim
+    INFO["roads"] = "OSM (Overpass)" if use_osm else "MOCK (lưới đường giả, mượn tên đường thật)"
 
     # ---------------- xóa dữ liệu cũ ----------------
     log("Xóa dữ liệu cũ …")
@@ -471,12 +594,31 @@ def main() -> None:
         return float(interp(x, y))
 
     # ---------------- network ----------------
-    streets = osm_streets(osm, to_local) if osm else []
-    INFO["roads"] = "OSM (Overpass)" if len(streets) >= 5 else "MOCK (lưới đường giả, mượn tên đường thật)"
-    if len(streets) < 5:
+    if not use_osm:
         streets = MOCK_STREETS
     street_lines = [LineString(c) for _, c in streets]
     net = build_network(streets)
+    # chỉ giữ thành phần liên thông lớn nhất của mạng
+    adj0 = defaultdict(set)
+    for e in net.edges:
+        adj0[e["a"]].add(e["b"]); adj0[e["b"]].add(e["a"])
+    seen, best = set(), set()
+    for k in net.nodes:
+        if k in seen:
+            continue
+        comp, stack = set(), [k]
+        while stack:
+            u = stack.pop()
+            if u in comp:
+                continue
+            comp.add(u); stack.extend(adj0[u] - comp)
+        seen |= comp
+        if len(comp) > len(best):
+            best = comp
+    if len(best) < len(net.nodes):
+        log(f"Bỏ {len(net.nodes) - len(best)} nút không liên thông")
+        net.nodes = {k: v for k, v in net.nodes.items() if k in best}
+        net.edges = [e for e in net.edges if e["a"] in best]
 
     # Rim nội suy từ TIN bằng hàm tin_elev() trong PostGIS
     keys = list(net.nodes)
@@ -492,7 +634,8 @@ def main() -> None:
     for p in pipes:
         a, b = net.nodes[p["from"]], net.nodes[p["to"]]
         seg_dir.setdefault(p["to"], (b["x"] - a["x"], b["y"] - a["y"]))
-    inlet_hosts = RNG.sample([k for k in keys if k not in design["outfalls"] and k in seg_dir], 15)
+    hosts = [k for k in keys if k not in design["outfalls"] and k in seg_dir]
+    inlet_hosts = RNG.sample(hosts, min(15, len(hosts)))
     inlets = []
     for h in inlet_hosts:
         dx, dy = seg_dir[h]
@@ -530,7 +673,7 @@ def main() -> None:
     main_pipes = [i for i, p in enumerate(pipes) if not p.get("inlet") and in_zone_strict(p)]
     # (a) 3 cống dốc ngược / bằng
     cands = [i for i in main_pipes if pipes[i]["D"] <= 800 and cover(pipes[i]) >= 1.0]
-    for i, s in zip(RNG.sample(cands, 3), [-0.0015, 0.0, 0.0003]):
+    for i, s in zip(RNG.sample(cands, min(3, len(cands))), [-0.0015, 0.0, 0.0003]):
         p = pipes[i]
         p["z_dn"] = p["z_up"] - s * p["L"]
         p["planted"] = "reverse_slope"
@@ -561,6 +704,8 @@ def main() -> None:
     # (c) cống nâng cấp D800 → D1200
     cands = [i for i in main_pipes if i not in used and pipes[i]["D"] == 800
              and rim[pipes[i]["from"]] - pipes[i]["z_up"] >= 2.1 and rim[pipes[i]["to"]] - pipes[i]["z_dn"] >= 2.1]
+    if not cands:  # nới điều kiện nếu mạng thật không có cống D800 đủ sâu
+        cands = [i for i in main_pipes if i not in used and pipes[i]["D"] <= 800]
     upgrade_idx = RNG.choice(cands)
     used.add(upgrade_idx)
     pipes[upgrade_idx]["planted"] = "upgrade"
@@ -569,7 +714,17 @@ def main() -> None:
              and 0.9 <= (ground(*((np.array([net.nodes[pipes[i]["from"]]["x"], net.nodes[pipes[i]["from"]]["y"]]) +
                                    np.array([net.nodes[pipes[i]["to"]]["x"], net.nodes[pipes[i]["to"]]["y"]])) / 2))
                          - ((pipes[i]["z_up"] + pipes[i]["z_dn"]) / 2 + pipes[i]["D"] / 1000 + 0.25)) <= 1.8]
-    clash_idx = RNG.sample(cands, 3)
+    # tuyến cắt ngang (30 m) không được đến gần cống nào khác trong 3 m
+    plines = [LineString([(net.nodes[p["from"]]["x"], net.nodes[p["from"]]["y"]), (net.nodes[p["to"]]["x"], net.nodes[p["to"]]["y"])]) for p in pipes]
+
+    def crossing(i, half=15.0):
+        a, b = net.nodes[pipes[i]["from"]], net.nodes[pipes[i]["to"]]
+        mx, my = (a["x"] + b["x"]) / 2, (a["y"] + b["y"]) / 2
+        L = math.hypot(b["x"] - a["x"], b["y"] - a["y"])
+        nx_, ny_ = -(b["y"] - a["y"]) / L, (b["x"] - a["x"]) / L
+        return LineString([(mx - half * nx_, my - half * ny_), (mx + half * nx_, my + half * ny_)])
+    cands = [i for i in cands if all(j == i or crossing(i).distance(plines[j]) >= 3.0 for j in range(len(pipes)))]
+    clash_idx = RNG.sample(cands, min(3, len(cands)))
     for i in clash_idx:
         pipes[i]["planted"] = "clash"
         used.add(i)
@@ -667,7 +822,7 @@ def main() -> None:
         kind = RNG.choice(["water", "telecom", "power"])
         du = {"water": 300, "telecom": 150, "power": 200}[kind]
         zc = (p["z_up"] + p["z_dn"]) / 2 + p["D"] / 1000 + clr + du / 2000
-        pts = [(mx + t * nx_, my + t * ny_, zc) for t in (-30, -10, 10, 30)]
+        pts = [(mx + t * nx_, my + t * ny_, zc) for t in (-15, -5, 5, 15)]
         util_rows.append((kind, du, RNG.choice(owners[kind]), G.lz(pts)))
     # 17 tuyến dọc đường, lệch tim 5 m về bên trái, cách giao lộ ≥ 15 m
     segs = []
@@ -694,11 +849,16 @@ def main() -> None:
                        values (%s,%s,%s,ST_GeomFromEWKT(%s), now() - interval '6 years', now() - interval '5 years')""", util_rows)
 
     # ---------------- buildings ----------------
-    blds = osm_buildings(osm, to_local, street_lines) if osm else []
-    INFO["buildings"] = "OSM" if len(blds) >= 100 else "MOCK"
-    if len(blds) < 100:
-        blds = gen_buildings_mock(street_lines, 500)
-    src = "osm" if INFO["buildings"] == "OSM" else "mock"
+    blds = osm_buildings(osm, conv) if osm else []
+    n_osm = len(blds)
+    if blds and not any("Chợ Thủ Đức" in (b["name"] or "") for b in blds):
+        # công trình OSM lớn nhất trong bán kính 60 m quanh toạ độ chợ (Nominatim) = nhà lồng chợ
+        near = [b for b in blds if b["poly"].distance(Point(0, 0)) < 60]
+        if near:
+            m = max(near, key=lambda b: b["poly"].area)
+            m.update(name="Chợ Thủ Đức (công trình OSM tại vị trí chợ)", floors=2, basement=False)
+    blds = gen_buildings_mock(street_lines, 500, existing=blds)   # bổ sung nhà mock tới đủ ~500
+    INFO["buildings"] = f"OSM {n_osm} + MOCK {len(blds) - n_osm}"
     for b in blds:
         c = b["poly"].centroid
         b["base"] = round(ground(c.x, c.y) + RNG.uniform(0.1, 0.5), 3)
@@ -707,7 +867,7 @@ def main() -> None:
         cur.execute("""insert into buildings (name, floors, height_m, base_elev_m, has_basement, year_built, source, geom,
                                              valid_from, tx_from)
                        values (%s,%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s),%s,%s) returning id""",
-                    (b["name"], b["floors"], b["height"], b["base"], b["basement"], b["year"], src, G.poly(b["poly"]),
+                    (b["name"], b["floors"], b["height"], b["base"], b["basement"], b["year"], b["source"], G.poly(b["poly"]),
                      vf, max(vf, datetime(2019, 1, 1, tzinfo=timezone.utc))))
         bid = cur.fetchone()[0]
         lod2 = b["floors"] <= 3 and RNG.random() < 0.4
@@ -747,6 +907,20 @@ def main() -> None:
         ("Dương Văn Cam", 25, (-30, 436), datetime(2023, 10, 5, 16, 45, tzinfo=timezone.utc)),
         ("Hẻm quanh chợ Thủ Đức", 50, (115, 146), datetime(2025, 10, 20, 15, 30, tzinfo=timezone.utc)),
     ]
+    if use_osm:  # đặt điểm ngập lên đúng tuyến đường thật theo tên (giao lộ nếu có 2 tên)
+        snap_rules = [(["Võ Văn Ngân"], (0, 0)), (["Kha Vạn Cân", "Võ Văn Ngân"], (0, 0)), (["Đặng Văn Bi"], (0, 0)),
+                      (["Tô Ngọc Vân", "Võ Văn Ngân"], (0, 0)), (["Dương Văn Cam"], (0, 0)), ([], (0, 0))]
+        moved = []
+        for (n, d, xy, t), (names, near) in zip(floods, snap_rules):
+            q = snap_to_street(streets, names, near) if names else None
+            if q is None and not names:   # "hẻm quanh chợ": điểm mạng cống gần chợ nhất
+                k = min(net.nodes, key=lambda k: math.hypot(net.nodes[k]["x"], net.nodes[k]["y"]))
+                q = (net.nodes[k]["x"] + 3, net.nodes[k]["y"] + 3)
+            if q is None:
+                log(f"  không thấy đường '{names[0]}' trong OSM → bỏ điểm ngập '{n}'")
+                continue
+            moved.append((n, d, q, t))
+        floods = moved
     cur.executemany("""insert into flood_points (name, max_depth_cm, source_url, occurred_at, note, geom)
                        values (%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s))""",
                     [(n, d, gsearch(f"ngập {n.split(' – ')[0]} Thủ Đức"), t,
@@ -760,7 +934,8 @@ def main() -> None:
 
     # ---------------- obs stations + water_obs (3 tháng, 15 phút/lần) ----------------
     cur.executemany("insert into obs_stations (id, name, geom) values (%s,%s,ST_GeomFromEWKT(%s))",
-                    [("TD01", "Trạm chợ Thủ Đức (mock)", G.p(110, 6)), ("TD02", "Trạm Tô Ngọc Vân (mock)", G.p(375, -300))])
+                    [("TD01", "Trạm chợ Thủ Đức (mock)", G.p(*(snap_to_street(streets, ["Võ Văn Ngân"]) or (110, 6)) if use_osm else (110, 6))),
+                     ("TD02", "Trạm Tô Ngọc Vân (mock)", G.p(*(snap_to_street(streets, ["Tô Ngọc Vân"], (375, -300)) or (375, -300)) if use_osm else (375, -300)))])
     start = (NOW - timedelta(days=92)).replace(hour=0, minute=0, second=0)
     steps = 92 * 96
     storms = []

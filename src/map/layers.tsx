@@ -322,7 +322,14 @@ export function UtilitiesLayer({ fc, highlight, show }: { fc?: FeatureCollection
 // ---------------------------------------------------------------------------
 // ĐIỂM NGẬP, SỰ CỐ, KHU PHỤ TRÁCH
 // ---------------------------------------------------------------------------
-export function FloodLayer({ fc, show }: { fc?: FeatureCollection; show: boolean }) {
+type GroundZ = ((lon: number, lat: number) => number) | null | undefined
+
+/** Vị trí điểm 2D trên mặt đất: dùng cao độ TIN nếu có (tránh lỗi clamp), nếu không thì clamp */
+function groundPos(lon: number, lat: number, gz: GroundZ, lift = 0.6) {
+  return gz ? pos(lon, lat, gz(lon, lat) + lift) : Cartesian3.fromDegrees(lon, lat)
+}
+
+export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show: boolean; groundZ?: GroundZ }) {
   useDataSource(
     'flood',
     show,
@@ -332,13 +339,13 @@ export function FloodLayer({ fc, show }: { fc?: FeatureCollection; show: boolean
         const [lon, lat] = f.geometry.coordinates as number[]
         ds.entities.add({
           id: `flood:${p.id}`,
-          position: Cartesian3.fromDegrees(lon, lat),
+          position: groundPos(lon, lat, groundZ),
           point: {
             pixelSize: 10 + p.max_depth_cm / 5,
             color: css('#0284c7', 0.85),
             outlineColor: Color.WHITE,
             outlineWidth: 2,
-            heightReference: HeightReference.CLAMP_TO_GROUND,
+            heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
           label: {
@@ -351,20 +358,20 @@ export function FloodLayer({ fc, show }: { fc?: FeatureCollection; show: boolean
             verticalOrigin: VerticalOrigin.BOTTOM,
             horizontalOrigin: HorizontalOrigin.CENTER,
             pixelOffset: new Cartesian2(0, -14),
-            heightReference: HeightReference.CLAMP_TO_GROUND,
+            heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             distanceDisplayCondition: new DistanceDisplayCondition(0, 2500),
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         })
       }
     },
-    [fc],
+    [fc, groundZ],
   )
   return null
 }
 
 const INCIDENT_COLOR: Record<string, string> = { new: '#dc2626', accepted: '#f59e0b', in_progress: '#8b5cf6', resolved: '#16a34a', rejected: '#6b7280' }
-export function IncidentsLayer({ fc, show }: { fc?: FeatureCollection; show: boolean }) {
+export function IncidentsLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show: boolean; groundZ?: GroundZ }) {
   useDataSource(
     'incidents',
     show,
@@ -373,19 +380,19 @@ export function IncidentsLayer({ fc, show }: { fc?: FeatureCollection; show: boo
         const [lon, lat] = f.geometry.coordinates as number[]
         ds.entities.add({
           id: `incident:${f.properties.id}`,
-          position: Cartesian3.fromDegrees(lon, lat),
+          position: groundPos(lon, lat, groundZ),
           point: {
             pixelSize: 9,
             color: css(INCIDENT_COLOR[f.properties.status] ?? '#000'),
             outlineColor: Color.BLACK,
             outlineWidth: 1,
-            heightReference: HeightReference.CLAMP_TO_GROUND,
+            heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         })
       }
     },
-    [fc],
+    [fc, groundZ],
   )
   return null
 }
@@ -416,7 +423,7 @@ export function ZonesLayer({ fc, show }: { fc?: FeatureCollection; show: boolean
 // ---------------------------------------------------------------------------
 // LỚP KẾT QUẢ PHÂN TÍCH (điểm va chạm, đường KNN, lưu vực Voronoi, lỗi lòng cống …)
 // ---------------------------------------------------------------------------
-export function OverlayLayer({ fc }: { fc?: FeatureCollection | null }) {
+export function OverlayLayer({ fc, groundZ }: { fc?: FeatureCollection | null; groundZ?: GroundZ }) {
   useDataSource(
     'overlay',
     true,
@@ -429,13 +436,13 @@ export function OverlayLayer({ fc }: { fc?: FeatureCollection | null }) {
           const [lon, lat, z] = g.coordinates as number[]
           ds.entities.add({
             id: f.id ?? undefined,
-            position: z === undefined ? Cartesian3.fromDegrees(lon, lat) : pos(lon, lat, z),
+            position: z === undefined ? groundPos(lon, lat, groundZ) : pos(lon, lat, z),
             point: {
               pixelSize: p.__size ?? 10,
               color,
               outlineColor: Color.WHITE,
               outlineWidth: 1.5,
-              heightReference: z === undefined ? HeightReference.CLAMP_TO_GROUND : HeightReference.NONE,
+              heightReference: z === undefined && !groundZ ? HeightReference.CLAMP_TO_GROUND : HeightReference.NONE,
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             label: p.__label
@@ -460,7 +467,7 @@ export function OverlayLayer({ fc }: { fc?: FeatureCollection | null }) {
         }
       }
     },
-    [fc],
+    [fc, groundZ],
   )
   return null
 }
