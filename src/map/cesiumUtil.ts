@@ -9,6 +9,8 @@ import {
   type TerrainProvider,
 } from 'cesium'
 import type { FeatureCollection } from '@/lib/types'
+import { KIND, STATUS, UTILITY } from '@/lib/theme'
+export { ratioColor } from '@/lib/theme'
 
 export const CESIUM_TOKEN = (import.meta.env.VITE_CESIUM_TOKEN as string | undefined) || ''
 export const HEIGHT_OFFSET = Number(import.meta.env.VITE_HEIGHT_OFFSET ?? 0) || 0
@@ -20,15 +22,11 @@ export const LOD_DISTANCE = 650
 
 export const css = (c: string, a = 1) => Color.fromCssColorString(c).withAlpha(a)
 
-export const STATUS_COLOR: Record<string, string> = {
-  active: '#2563eb',
-  maintenance: '#f59e0b',
-  damaged: '#dc2626',
-  blocked: '#7c3aed',
-  retired: '#6b7280',
-}
-export const UTILITY_COLOR: Record<string, string> = { water: '#06b6d4', power: '#ef4444', telecom: '#22c55e' }
-export const KIND_COLOR: Record<string, string> = { manhole: '#475569', inlet: '#0ea5e9', outfall: '#16a34a' }
+// Màu lấy từ bảng màu ngữ nghĩa dùng chung (src/lib/theme.ts)
+const pick = <T extends Record<string, { color: string }>>(o: T) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.color])) as Record<string, string>
+export const STATUS_COLOR = pick(STATUS)
+export const UTILITY_COLOR = pick(UTILITY)
+export const KIND_COLOR = pick(KIND)
 
 export function pos(lon: number, lat: number, z = 0) {
   return Cartesian3.fromDegrees(lon, lat, z + HEIGHT_OFFSET)
@@ -43,9 +41,9 @@ export function circleShape(r: number, n = 14) {
 export function elevColor(z: number, zmin: number, zmax: number, alpha = 1) {
   const t = Math.max(0, Math.min(1, (z - zmin) / Math.max(zmax - zmin, 1e-6)))
   const stops = [
-    [0, [56, 142, 60]],
-    [0.5, [205, 190, 90]],
-    [1, [150, 100, 60]],
+    [0, [134, 196, 160]],   // thấp: xanh lá nhạt
+    [0.5, [222, 214, 160]], // giữa: be
+    [1, [196, 160, 120]],   // cao: nâu nhạt
   ] as const
   let i = 0
   while (i < stops.length - 2 && t > stops[i + 1][0]) i++
@@ -149,10 +147,30 @@ export function tinTerrainProvider(tin: FeatureCollection): TerrainProvider {
   })
 }
 
-/** Màu theo thang (0 → 1+) xanh → vàng → đỏ, cho tỉ số tải Q_in/Q_cap */
-export function ratioColor(r: number) {
-  if (r >= 1) return '#dc2626'
-  if (r >= 0.8) return '#f97316'
-  if (r >= 0.5) return '#eab308'
-  return '#16a34a'
+/** Bản đồ nền (Esri, miễn phí kèm ghi nguồn; OSM). "Xám nhạt" làm mặc định: tối giản để dữ liệu nổi bật. */
+export type BasemapKey = 'light' | 'dark' | 'streets' | 'satellite' | 'osm'
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
+export const BASEMAPS: Record<BasemapKey, { label: string; url: string; overlay?: string; credit: string; subdomains?: string[]; maxLevel: number; thumb: string }> = {
+  light: {
+    label: 'Xám nhạt', url: `${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+    overlay: `${ESRI}/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f4f4f4 0%,#d9dde2 100%)',
+  },
+  dark: {
+    label: 'Xám đậm', url: `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+    overlay: `${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, maxLevel: 16,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#3f3f46 0%,#18181b 100%)',
+  },
+  streets: {
+    label: 'Đường phố', url: `${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, maxLevel: 19,
+    credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f3eedc 0%,#f2b48a 100%)',
+  },
+  satellite: {
+    label: 'Vệ tinh', url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, maxLevel: 19,
+    credit: 'Esri, Maxar, Earthstar Geographics', thumb: 'linear-gradient(135deg,#365314 0%,#78716c 60%,#44403c 100%)',
+  },
+  osm: {
+    label: 'OSM', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxLevel: 19,
+    credit: '© OpenStreetMap contributors', thumb: 'linear-gradient(135deg,#f2efe9 0%,#aad3df 100%)',
+  },
 }

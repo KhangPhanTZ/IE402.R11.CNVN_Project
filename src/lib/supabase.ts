@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const rawUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+// 'same-origin': gọi API qua chính máy chủ giao diện (proxy của Vite khi phát triển)
+const url = rawUrl === 'same-origin' ? window.location.origin : rawUrl
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const supabaseConfigured = Boolean(url && anonKey)

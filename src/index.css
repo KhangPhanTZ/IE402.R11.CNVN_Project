@@ -1,33 +1,79 @@
+@import '@fontsource-variable/inter';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* =====================================================================
+   DESIGN TOKENS – "Technical minimal" (sáng, dữ liệu là trung tâm)
+   Màu viết theo HSL để Tailwind pha alpha: bg-primary/10 …
+   ===================================================================== */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 192 91% 30%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 192 91% 30%;
-    --radius: 0.5rem;
+    /* Brand – xanh nước (cyan 700) */
+    --primary: 192 82% 31%;            /* #0e7490 */
+    --primary-hover: 194 70% 27%;      /* #155e75 */
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 185 75% 95%;       /* nền nhấn nhẹ */
+
+    /* Neutral – slate */
+    --background: 210 33% 98%;         /* #f8fafc nền trang */
+    --surface: 0 0% 100%;              /* panel, card */
+    --foreground: 222 47% 11%;         /* #0f172a chữ chính */
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 35%;   /* #475569 – đạt 7:1 trên trắng */
+    --subtle-foreground: 215 16% 47%;  /* #64748b – chỉ dùng ≥ 12px */
+    --border: 214 32% 91%;
+    --input: 214 32% 85%;
+    --ring: 192 82% 31%;
+
+    /* Semantic */
+    --success: 142 72% 29%;            /* #15803d */
+    --success-soft: 138 76% 96%;
+    --warning: 32 95% 44%;             /* #d97706 */
+    --warning-soft: 48 100% 96%;
+    --danger: 0 72% 51%;               /* #dc2626 */
+    --danger-soft: 0 86% 97%;
+    --info: 221 83% 53%;               /* #2563eb */
+    --info-soft: 214 100% 97%;
+
+    /* shadcn alias */
+    --card: var(--surface);
+    --card-foreground: var(--foreground);
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: var(--danger);
+    --destructive-foreground: 0 0% 100%;
+
+    --radius: 0.625rem;                /* 10px card; md 8px; sm 6px */
   }
   * { @apply border-border; }
   html, body, #root { height: 100%; }
-  body { @apply bg-background text-foreground antialiased; font-family: Inter, system-ui, sans-serif; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  /* số liệu dạng bảng thẳng cột */
+  .tabular { font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: none; }
 }
 
-/* Ẩn credit mặc định cho gọn, vẫn giữ attribution OSM ở góc */
-.cesium-viewer-bottom { opacity: 0.6; }
+@layer components {
+  /* Panel nổi trên bản đồ: nền đặc để đủ tương phản (không dùng kính mờ) */
+  .map-panel, .glass-panel {
+    @apply rounded-xl bg-white/90 ring-1 ring-slate-900/[0.07] backdrop-blur-xl backdrop-saturate-150;
+    box-shadow: 0 10px 30px -8px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+  }
+  .section-title { @apply text-xs font-semibold uppercase tracking-wide text-subtle; }
+}
+
+/* Cesium */
+.cesium-viewer-bottom { left: auto !important; right: 64px; bottom: 6px !important; opacity: 0.85; }
+.cesium-credit-textContainer, .cesium-credit-expand-link { font: 500 11px/1.4 'Inter Variable', sans-serif; color: #475569 !important; }
+.cesium-credit-expand-link { background: rgb(255 255 255 / 0.8); padding: 2px 6px; border-radius: 6px; }
+.no-ion-logo .cesium-credit-logoContainer { display: none !important; }
 .cesium-viewer-toolbar { top: 8px; right: 8px; }
+.map-picking canvas { cursor: crosshair !important; }

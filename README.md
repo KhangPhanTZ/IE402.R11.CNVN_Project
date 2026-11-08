@@ -68,6 +68,12 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ie402 python3 scripts
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ie402 npm run dev:mock-api
 ```
 
+Tuỳ chọn – chạy giao diện và API chung một cổng (tiện khi chỉ mở được cổng 5173, ví dụ xem qua preview/tunnel): đặt `VITE_SUPABASE_URL=same-origin` trong `.env.local` rồi chạy Vite với proxy:
+
+```bash
+DEV_API_PROXY=http://localhost:54321 npm run dev
+```
+
 > `mini-supabase` chỉ để phát triển: **không có Realtime**, chỉ hỗ trợ các API mà frontend dùng. Mọi truy vấn vẫn chạy dưới `SET ROLE anon|authenticated` + `request.jwt.claims` nên RLS hoạt động giống PostgREST.
 
 ### 1.4. Kiểm thử theo giai đoạn
@@ -332,6 +338,24 @@ SUPABASE_URL=https://<project-ref>.supabase.co SUPABASE_ANON_KEY=<anon-key> npm 
 Không commit secret: `.env`, `.env.local` đã nằm trong `.gitignore`; chỉ `.env.example` được commit.
 
 ---
+
+## 11b. Giao diện & design system
+
+Phong cách "technical minimal" (nền sáng, dữ liệu là trung tâm), không dùng dark mode.
+
+| Thành phần | Vị trí | Ghi chú |
+|---|---|---|
+| Token màu, bóng, bo góc | `src/index.css`, `tailwind.config.js` | Primary cyan 700 `#0e7490`; neutral slate; semantic success/warning/danger/info (nền nhạt + chữ đậm, đạt WCAG AA) |
+| Thang chữ | `tailwind.config.js` | Inter; 12 / 13 / 14 / 16 / 18 / 22 px – tối thiểu 12 px |
+| Màu bản đồ | `src/lib/theme.ts` | Một nguồn duy nhất: màu **trạng thái** (tông lạnh) ở chế độ thường, màu **phân tích** (tông nóng) khi có kết quả – phần còn lại bị làm mờ, nên hai hệ màu không lẫn nhau |
+| Nhãn & đơn vị trường dữ liệu | `src/lib/fields.ts` | Bảng kết quả, popup, form không còn hiển thị tên cột CSDL |
+| Diễn giải lỗi CSDL | `src/lib/errors.ts` | Lỗi topology / RLS / versioning có tiêu đề dễ hiểu, nguyên văn nằm trong "Chi tiết kỹ thuật" |
+| Component | `src/components/ui/` | Button (có trạng thái loading), Badge, Field, Dialog/ConfirmDialog, Alert, EmptyState, Skeleton, Spinner, Tooltip, Dropdown |
+| Khung ứng dụng | `src/components/Layout.tsx` | Rail điều hướng dọc (desktop), thanh tab đáy (mobile), menu tài khoản |
+| Bảng lệnh ⌘K / Ctrl K | `src/components/CommandPalette.tsx` (cmdk) | Tìm hố ga/cống theo mã, bật/tắt lớp, đổi bản đồ nền, điều hướng |
+| Bản đồ nền | `src/map/cesiumUtil.ts` (`BASEMAPS`) | Esri Light/Dark Gray Canvas (+ nhãn), Street Map, World Imagery, OSM – miễn phí kèm ghi nguồn |
+| Điều khiển bản đồ | `src/map/MapControls.tsx`, `BasemapSwitcher.tsx` | Zoom, la bàn về hướng Bắc, chuyển 2D/3D, về toàn cảnh, toàn màn hình |
+| Chuyển động | `motion` | Popup, bảng lệnh, bộ chọn nền, KPI đếm số |
 
 ## 12. Cấu trúc thư mục
 

@@ -913,9 +913,17 @@ def main() -> None:
         moved = []
         for (n, d, xy, t), (names, near) in zip(floods, snap_rules):
             q = snap_to_street(streets, names, near) if names else None
-            if q is None and not names:   # "hẻm quanh chợ": điểm mạng cống gần chợ nhất
-                k = min(net.nodes, key=lambda k: math.hypot(net.nodes[k]["x"], net.nodes[k]["y"]))
-                q = (net.nodes[k]["x"] + 3, net.nodes[k]["y"] + 3)
+            # tránh hai điểm ngập gần như trùng nhau (nhãn đè lên nhau): cách nhau ≥ 70 m
+            cands = []
+            if names:
+                lines = [LineString(c) for nm, c in streets if names[0].lower() in nm.lower()]
+                cands = [(p.x, p.y) for ln in lines for p in (ln.interpolate(dd) for dd in np.arange(0, ln.length, 10.0))]
+            else:  # "hẻm quanh chợ": các nút mạng cống quanh chợ
+                cands = [(v["x"] + 3, v["y"] + 3) for v in net.nodes.values()]
+            target = q or near
+            ok = [c for c in cands if all(math.dist(c, m[2]) >= 70 for m in moved)]
+            if q is None or any(math.dist(q, m[2]) < 70 for m in moved):
+                q = min(ok, key=lambda c: math.dist(c, target)) if ok else q
             if q is None:
                 log(f"  không thấy đường '{names[0]}' trong OSM → bỏ điểm ngập '{n}'")
                 continue
