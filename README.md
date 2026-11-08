@@ -68,6 +68,12 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ie402 python3 scripts
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ie402 npm run dev:mock-api
 ```
 
+Tuỳ chọn – chạy giao diện và API chung một cổng (tiện khi chỉ mở được cổng 5173, ví dụ xem qua preview/tunnel): đặt `VITE_SUPABASE_URL=same-origin` trong `.env.local` rồi chạy Vite với proxy:
+
+```bash
+DEV_API_PROXY=http://localhost:54321 npm run dev
+```
+
 > `mini-supabase` chỉ để phát triển: **không có Realtime**, chỉ hỗ trợ các API mà frontend dùng. Mọi truy vấn vẫn chạy dưới `SET ROLE anon|authenticated` + `request.jwt.claims` nên RLS hoạt động giống PostgREST.
 
 ### 1.4. Kiểm thử theo giai đoạn
