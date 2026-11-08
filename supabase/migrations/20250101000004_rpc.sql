@@ -486,13 +486,22 @@ begin
   ), cur as (
     select p.*, pm.manning_n from public.pipes p join public.pipe_materials pm on pm.code = p.material_code
      where p.valid_to is null and p.tx_to is null
-  ), up(pipe_id, mh_id) as (
-    -- mỗi cống nhận nước từ hố ga đầu cống và toàn bộ hố ga thượng lưu
-    select c.id, c.from_mh from cur c
-    union
-    select u.pipe_id, c.from_mh from up u join cur c on c.to_mh = u.mh_id
+  ), nout as (
+    select from_mh, count(*)::double precision as n from cur group by from_mh
+  ), up(pipe_id, mh_id, frac, lvl) as (
+    -- Định tuyến dòng chảy trên đồ thị có hướng: cống nhận phần lưu lượng của hố ga đầu cống
+    -- (chia đều cho các cống ra) và, đệ quy, của mọi hố ga thượng lưu (nhân dồn tỉ lệ chia)
+    select c.id, c.from_mh, 1.0 / n.n, 0
+      from cur c join nout n on n.from_mh = c.from_mh
+    union all
+    select u.pipe_id, c.from_mh, u.frac / n.n, u.lvl + 1
+      from up u
+      join cur c on c.to_mh = u.mh_id
+      join nout n on n.from_mh = c.from_mh
+     where u.lvl < 300
   ), flow as (
-    select u.pipe_id, sum(q.q_in) as q_in, count(*) as n_mh, sum(q.area_m2) as area_m2
+    select u.pipe_id, sum(u.frac * q.q_in) as q_in, count(distinct u.mh_id) as n_mh,
+           sum(u.frac * q.area_m2) as area_m2
       from up u join qin q on q.mh_id = u.mh_id group by u.pipe_id
   ), res as (
     select c.*, f.q_in, f.n_mh, f.area_m2,
