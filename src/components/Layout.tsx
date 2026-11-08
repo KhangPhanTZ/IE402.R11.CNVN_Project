@@ -39,6 +39,8 @@ function useIncidentRealtime(enabled: boolean) {
   }, [enabled, qc, nav])
 }
 
+const ROLE_VI: Record<string, string> = { admin: 'Quản trị', technician: 'Kỹ thuật viên', citizen: 'Người dân', anon: 'Khách' }
+
 export function Layout({ children }: { children: ReactNode }) {
   const { role, profile, session, isStaff, signOut } = useAuth()
   const nav = useNavigate()
@@ -51,34 +53,41 @@ export function Layout({ children }: { children: ReactNode }) {
   ]
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b bg-slate-900 px-4 text-white">
-        <div className="flex items-center gap-2 font-semibold">
-          <Droplets className="h-5 w-5 text-cyan-400" />
-          <span className="hidden md:inline">HTTT 3D Thoát nước – Chợ Thủ Đức</span>
-        </div>
-        <nav className="flex gap-1">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm">Bỏ qua tới nội dung</a>
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900 px-3 text-white sm:gap-6 sm:px-5">
+        <NavLink to="/map" className="flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+          <span className="flex size-8 items-center justify-center rounded-md bg-cyan-500/15 text-cyan-300"><Droplets className="size-5" aria-hidden /></span>
+          <span className="hidden leading-tight lg:block">
+            <span className="block text-sm font-semibold">HTTT 3D Thoát nước</span>
+            <span className="block text-xs text-slate-400">Khu vực chợ Thủ Đức</span>
+          </span>
+        </NavLink>
+        <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label="Điều hướng chính">
           {links.filter((l) => l.show).map((l) => (
-            <NavLink key={l.to} to={l.to} className={({ isActive }) => cn('rounded px-3 py-1 text-sm hover:bg-white/10', isActive && 'bg-white/15')}>
+            <NavLink key={l.to} to={l.to}
+              className={({ isActive }) => cn('whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400', isActive && 'bg-white/10 text-white')}>
               {l.label}
             </NavLink>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-2 text-sm">
-          {!supabaseConfigured && <Badge variant="destructive">Thiếu VITE_SUPABASE_URL / ANON_KEY</Badge>}
+        <div className="flex shrink-0 items-center gap-2 text-sm">
+          {!supabaseConfigured && <Badge variant="destructive">Thiếu cấu hình Supabase</Badge>}
           {session ? (
             <>
-              <span className="hidden sm:inline">{profile?.full_name ?? session.user.email}</span>
-              <Badge variant="secondary">{role}</Badge>
-              <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => signOut().then(() => nav('/map'))}>
-                <LogOut className="h-4 w-4" />
+              <span className="hidden text-right leading-tight md:block">
+                <span className="block font-medium">{profile?.full_name ?? session.user.email}</span>
+                <span className="block text-xs text-slate-400">{ROLE_VI[role]}</span>
+              </span>
+              <Button size="icon" variant="ghost" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={() => signOut().then(() => nav('/map'))} aria-label="Đăng xuất" title="Đăng xuất">
+                <LogOut />
               </Button>
             </>
           ) : (
-            <Button size="sm" variant="secondary" onClick={() => nav('/login')}><LogIn className="h-4 w-4" /> Đăng nhập</Button>
+            <Button size="sm" variant="secondary" className="bg-white text-slate-900 hover:bg-slate-100" onClick={() => nav('/login')}><LogIn /> Đăng nhập</Button>
           )}
         </div>
       </header>
-      <main className="relative min-h-0 flex-1">{children}</main>
+      <main id="main" className="relative min-h-0 flex-1">{children}</main>
     </div>
   )
 }

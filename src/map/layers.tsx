@@ -35,42 +35,44 @@ import {
   type Viewer,
 } from 'cesium'
 import type { FeatureCollection, Highlight } from '@/lib/types'
+import { ANALYSIS, BUILDING, INCIDENT } from '@/lib/theme'
 import { buildCsgTree, evaluateCsg, type Mesh } from '@/lib/csg'
 import { css, circleShape, elevColor, HEIGHT_OFFSET, KIND_COLOR, LOD_DISTANCE, pos, STATUS_COLOR, UTILITY_COLOR } from './cesiumUtil'
 
-const DIM = '#94a3b8'
+const DIM = ANALYSIS.dim
 const FAR = new DistanceDisplayCondition(LOD_DISTANCE, Number.MAX_VALUE)
 const NEAR = new DistanceDisplayCondition(0, LOD_DISTANCE)
 
 function colorFor(id: number, map: Record<number, string> | undefined, dim: boolean | undefined, base: string) {
   if (map && map[id]) return { c: map[id], a: 1 }
-  return dim ? { c: DIM, a: 0.35 } : { c: base, a: 1 }
+  return dim ? { c: DIM, a: 0.45 } : { c: base, a: 1 }
 }
 
-/** DataSource gắn với vòng đời component; build() chạy lại khi deps đổi */
+/**
+ * DataSource gắn với vòng đời component. Mỗi lần deps đổi (dữ liệu / tô màu phân tích) dựng một
+ * DataSource MỚI rồi mới gỡ cái cũ: tránh việc xoá–thêm lại entity cùng id khiến Cesium gộp sự kiện
+ * và không dựng lại batch hình học (màu trên màn hình không đổi). Đổi DataSource cũng không gây nháy.
+ */
 function useDataSource(name: string, show: boolean, build: (ds: CustomDataSource, v: Viewer) => void, deps: unknown[]) {
   const { viewer } = useCesium()
   const ref = useRef<CustomDataSource | null>(null)
   useEffect(() => {
     if (!viewer) return
     const ds = new CustomDataSource(name)
-    ref.current = ds
-    viewer.dataSources.add(ds)
-    return () => {
-      if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true)
-      ref.current = null
-    }
-  }, [viewer, name])
-  useEffect(() => {
-    const ds = ref.current
-    if (!ds || !viewer) return
-    ds.entities.suspendEvents()
-    ds.entities.removeAll()
     build(ds, viewer)
-    ds.entities.resumeEvents()
+    ds.show = show
+    viewer.dataSources.add(ds)
+    const old = ref.current
+    ref.current = ds
+    if (old && viewer.dataSources.contains(old)) viewer.dataSources.remove(old, true)
     viewer.scene.requestRender()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewer, ...deps])
+  useEffect(() => () => {
+    const ds = ref.current
+    if (viewer && ds && !viewer.isDestroyed() && viewer.dataSources.contains(ds)) viewer.dataSources.remove(ds, true)
+    ref.current = null
+  }, [viewer])
   useEffect(() => {
     if (ref.current) ref.current.show = show
   }, [show])
@@ -143,8 +145,8 @@ export function ManholesLayer({ fc, highlight, show, pickedIds }: { fc?: Feature
       const p = f.properties
       const [lon, lat, z] = f.geometry.coordinates as number[]
       const picked = pickedIds?.includes(p.id)
-      const base = p.kind === 'manhole' ? STATUS_COLOR[p.status] === STATUS_COLOR.active ? KIND_COLOR.manhole : STATUS_COLOR[p.status] : KIND_COLOR[p.kind]
-      const { c, a } = picked ? { c: '#facc15', a: 1 } : colorFor(p.id, highlight?.manholes, highlight?.dimOthers, base ?? '#475569')
+      const base = p.status && p.status !== 'active' ? STATUS_COLOR[p.status] : KIND_COLOR[p.kind]
+      const { c, a } = picked ? { c: ANALYSIS.marker, a: 1 } : colorFor(p.id, highlight?.manholes, highlight?.dimOthers, base ?? '#475569')
       const tree = buildCsgTree(p.csg)
       points.add({
         id: `manhole:${p.id}`,
@@ -209,7 +211,7 @@ export function BuildingsLayer({ fc, highlight, show }: { fc?: FeatureCollection
       for (const f of fc?.features ?? []) {
         const p = f.properties
         const ring = (f.geometry.coordinates as number[][][])[0]
-        const { c, a } = colorFor(p.id, highlight?.buildings, highlight?.dimOthers, p.has_basement ? '#c7d2fe' : '#e2e8f0')
+        const { c, a } = colorFor(p.id, highlight?.buildings, highlight?.dimOthers, p.has_basement ? BUILDING.basement : BUILDING.normal)
         ds.entities.add({
           id: `building:${p.id}`,
           name: p.name,
@@ -217,8 +219,9 @@ export function BuildingsLayer({ fc, highlight, show }: { fc?: FeatureCollection
             hierarchy: new PolygonHierarchy(Cartesian3.fromDegreesArray(ring.flatMap(([lon, lat]) => [lon, lat]))),
             height: Number(p.base_elev_m) + HEIGHT_OFFSET,
             extrudedHeight: Number(p.base_elev_m) + Number(p.height_m) + HEIGHT_OFFSET,
-            material: css(c, highlight?.buildings?.[p.id] ? 0.95 : a * 0.85),
-            outline: false,
+            material: css(c, highlight?.buildings?.[p.id] ? 0.95 : a * 0.9),
+            outline: true, // viền cạnh giúp tách khối nhà
+            outlineColor: css(BUILDING.outline, highlight?.dimOthers && !highlight?.buildings?.[p.id] ? 0.25 : 0.7),
           },
         })
       }
@@ -342,24 +345,25 @@ export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show
           position: groundPos(lon, lat, groundZ),
           point: {
             pixelSize: 10 + p.max_depth_cm / 5,
-            color: css('#0284c7', 0.85),
+            color: css('#0284c7', 0.9),
             outlineColor: Color.WHITE,
             outlineWidth: 2,
             heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
           label: {
-            text: `${p.name}\n${p.max_depth_cm} cm`,
-            font: '12px sans-serif',
-            fillColor: Color.WHITE,
-            outlineColor: Color.fromCssColorString('#0c4a6e'),
-            outlineWidth: 3,
-            style: LabelStyle.FILL_AND_OUTLINE,
+            text: `${p.max_depth_cm} cm`,
+            font: '600 12px Inter, sans-serif',
+            fillColor: Color.fromCssColorString('#0c4a6e'),
+            showBackground: true,
+            backgroundColor: css('#ffffff', 0.92),
+            backgroundPadding: new Cartesian2(6, 3),
+            style: LabelStyle.FILL,
             verticalOrigin: VerticalOrigin.BOTTOM,
             horizontalOrigin: HorizontalOrigin.CENTER,
             pixelOffset: new Cartesian2(0, -14),
             heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
-            distanceDisplayCondition: new DistanceDisplayCondition(0, 2500),
+            distanceDisplayCondition: new DistanceDisplayCondition(0, 1800),
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
         })
@@ -370,7 +374,6 @@ export function FloodLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show
   return null
 }
 
-const INCIDENT_COLOR: Record<string, string> = { new: '#dc2626', accepted: '#f59e0b', in_progress: '#8b5cf6', resolved: '#16a34a', rejected: '#6b7280' }
 export function IncidentsLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show: boolean; groundZ?: GroundZ }) {
   useDataSource(
     'incidents',
@@ -383,9 +386,9 @@ export function IncidentsLayer({ fc, show, groundZ }: { fc?: FeatureCollection; 
           position: groundPos(lon, lat, groundZ),
           point: {
             pixelSize: 9,
-            color: css(INCIDENT_COLOR[f.properties.status] ?? '#000'),
-            outlineColor: Color.BLACK,
-            outlineWidth: 1,
+            color: css((INCIDENT as Record<string, { color: string }>)[f.properties.status]?.color ?? '#000'),
+            outlineColor: Color.WHITE,
+            outlineWidth: 1.5,
             heightReference: groundZ ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
           },
@@ -430,7 +433,7 @@ export function OverlayLayer({ fc, groundZ }: { fc?: FeatureCollection | null; g
     (ds) => {
       for (const f of fc?.features ?? []) {
         const p = f.properties
-        const color = css(p.__color ?? '#e11d48', p.__alpha ?? 1)
+        const color = css(p.__color ?? ANALYSIS.critical, p.__alpha ?? 1)
         const g = f.geometry
         if (g.type === 'Point') {
           const [lon, lat, z] = g.coordinates as number[]
@@ -446,7 +449,7 @@ export function OverlayLayer({ fc, groundZ }: { fc?: FeatureCollection | null; g
               disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             label: p.__label
-              ? { text: p.__label, font: '11px sans-serif', fillColor: Color.WHITE, outlineColor: Color.BLACK, outlineWidth: 3, style: LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cartesian2(0, -16), disableDepthTestDistance: Number.POSITIVE_INFINITY, distanceDisplayCondition: new DistanceDisplayCondition(0, 1200) }
+              ? { text: p.__label, font: '600 12px Inter, sans-serif', fillColor: Color.fromCssColorString('#0f172a'), showBackground: true, backgroundColor: css('#ffffff', 0.92), backgroundPadding: new Cartesian2(6, 3), style: LabelStyle.FILL, pixelOffset: new Cartesian2(0, -16), disableDepthTestDistance: Number.POSITIVE_INFINITY, distanceDisplayCondition: new DistanceDisplayCondition(0, 1200) }
               : undefined,
           })
         } else if (g.type === 'LineString') {

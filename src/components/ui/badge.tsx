@@ -2,20 +2,30 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
-const badgeVariants = cva('inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold transition-colors', {
+/** Badge nền nhạt + chữ đậm màu: đọc được và đạt tương phản AA */
+const badgeVariants = cva('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', {
   variants: {
     variant: {
-      default: 'border-transparent bg-primary text-primary-foreground',
-      secondary: 'border-transparent bg-secondary text-secondary-foreground',
-      destructive: 'border-transparent bg-destructive text-destructive-foreground',
-      outline: 'text-foreground',
-      warning: 'border-transparent bg-amber-500 text-white',
-      success: 'border-transparent bg-emerald-600 text-white',
+      default: 'bg-primary-soft text-primary ring-primary/20',
+      secondary: 'bg-muted text-muted-foreground ring-border',
+      outline: 'bg-surface text-muted-foreground ring-border',
+      success: 'bg-success-soft text-success ring-success/20',
+      warning: 'bg-warning-soft text-warning ring-warning/25',
+      destructive: 'bg-danger-soft text-danger ring-danger/20',
+      info: 'bg-info-soft text-info ring-info/20',
+      violet: 'bg-violet-50 text-violet-700 ring-violet-600/20',
     },
   },
   defaultVariants: { variant: 'default' },
 })
 
-export function Badge({ className, variant, ...props }: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof badgeVariants>) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />
+export type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>
+
+export function Badge({ className, variant, dot, ...props }: React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants> & { dot?: boolean }) {
+  return (
+    <span className={cn(badgeVariants({ variant }), className)} {...props}>
+      {dot && <span className="size-1.5 rounded-full bg-current" aria-hidden />}
+      {props.children}
+    </span>
+  )
 }

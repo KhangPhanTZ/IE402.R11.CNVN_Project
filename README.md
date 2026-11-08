@@ -339,6 +339,19 @@ Không commit secret: `.env`, `.env.local` đã nằm trong `.gitignore`; chỉ 
 
 ---
 
+## 11b. Giao diện & design system
+
+Phong cách "technical minimal" (nền sáng, dữ liệu là trung tâm), không dùng dark mode.
+
+| Thành phần | Vị trí | Ghi chú |
+|---|---|---|
+| Token màu, bóng, bo góc | `src/index.css`, `tailwind.config.js` | Primary cyan 700 `#0e7490`; neutral slate; semantic success/warning/danger/info (nền nhạt + chữ đậm, đạt WCAG AA) |
+| Thang chữ | `tailwind.config.js` | Inter; 12 / 13 / 14 / 16 / 18 / 22 px – tối thiểu 12 px |
+| Màu bản đồ | `src/lib/theme.ts` | Một nguồn duy nhất: màu **trạng thái** (tông lạnh) ở chế độ thường, màu **phân tích** (tông nóng) khi có kết quả – phần còn lại bị làm mờ, nên hai hệ màu không lẫn nhau |
+| Nhãn & đơn vị trường dữ liệu | `src/lib/fields.ts` | Bảng kết quả, popup, form không còn hiển thị tên cột CSDL |
+| Diễn giải lỗi CSDL | `src/lib/errors.ts` | Lỗi topology / RLS / versioning có tiêu đề dễ hiểu, nguyên văn nằm trong "Chi tiết kỹ thuật" |
+| Component | `src/components/ui/` | Button (có trạng thái loading), Badge, Field, Dialog/ConfirmDialog, Alert, EmptyState, Skeleton, Spinner |
+
 ## 12. Cấu trúc thư mục
 
 ```

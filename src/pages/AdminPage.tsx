@@ -44,16 +44,16 @@ function Users() {
                 <TD>{u.email}</TD>
                 <TD>{u.full_name}</TD>
                 <TD>
-                  <Select className="w-36" value={u.role} onChange={(e) => run(rpc('admin_set_role', { p_user: u.id, p_role: e.target.value }), 'Đã đổi vai trò')}>
-                    <option value="citizen">citizen</option><option value="technician">technician</option><option value="admin">admin</option>
+                  <Select className="w-44" value={u.role} onChange={(e) => run(rpc('admin_set_role', { p_user: u.id, p_role: e.target.value }), 'Đã đổi vai trò')}>
+                    <option value="citizen">Người dân</option><option value="technician">Kỹ thuật viên</option><option value="admin">Quản trị</option>
                   </Select>
                 </TD>
                 <TD className="space-x-2">
                   {zones.data?.features.map((z) => {
                     const on = u.zone_ids.includes(z.properties.id)
                     return (
-                      <label key={z.properties.id} className="inline-flex items-center gap-1">
-                        <input type="checkbox" checked={on}
+                      <label key={z.properties.id} className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${on ? 'border-primary bg-primary-soft text-primary' : 'text-muted-foreground hover:bg-muted'}`}>
+                        <input type="checkbox" className="accent-[hsl(var(--primary))]" checked={on}
                           onChange={() => run(rpc('admin_set_user_zones', { p_user: u.id, p_zone_ids: on ? u.zone_ids.filter((x: number) => x !== z.properties.id) : [...u.zone_ids, z.properties.id] }), 'Đã cập nhật khu phụ trách')} />
                         {z.properties.name}
                       </label>
@@ -96,7 +96,7 @@ function Zones() {
         {edit && (
           <div className="space-y-2 rounded border p-3">
             <div><Label>Tên</Label><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></div>
-            <div><Label>GeoJSON Polygon</Label><Textarea rows={5} className="font-mono text-[11px]" value={edit.geojson} onChange={(e) => setEdit({ ...edit, geojson: e.target.value })} /></div>
+            <div><Label>GeoJSON Polygon</Label><Textarea rows={5} className="font-mono text-xs" value={edit.geojson} onChange={(e) => setEdit({ ...edit, geojson: e.target.value })} /></div>
             <div className="flex gap-2">
               <Button size="sm" onClick={async () => {
                 try {
@@ -148,7 +148,7 @@ function Audit() {
               <TR key={r.id}>
                 <TD className="whitespace-nowrap">{fmtDate(r.at)}</TD><TD>{r.tbl}</TD><TD>{r.row_id}</TD>
                 <TD><Badge variant={r.action === 'DELETE' ? 'destructive' : r.action === 'INSERT' ? 'success' : 'secondary'}>{r.action}</Badge></TD>
-                <TD className="font-mono text-[10px]">{r.actor?.slice(0, 8) ?? 'system'}</TD>
+                <TD className="font-mono text-xs">{r.actor?.slice(0, 8) ?? 'system'}</TD>
                 <TD className="max-w-[480px] truncate" title={diff(r.old_data, r.new_data)}>{diff(r.old_data, r.new_data) || (r.new_data ? JSON.stringify(r.new_data).slice(0, 120) : '')}</TD>
               </TR>
             ))}
@@ -240,9 +240,14 @@ export default function AdminPage() {
   const [tab, setTab] = useState(() => localStorage.getItem('admin-tab') ?? 'users')
   useEffect(() => localStorage.setItem('admin-tab', tab), [tab])
   return (
-    <div className="h-full overflow-auto p-4">
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+    <div className="h-full overflow-auto">
+      <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
+      <div>
+        <h1 className="text-xl font-semibold">Quản trị hệ thống</h1>
+        <p className="text-sm text-muted-foreground">Người dùng & phân quyền theo khu, nhật ký thay đổi, hiệu quả xử lý sự cố, xuất dữ liệu.</p>
+      </div>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start sm:w-auto">
           <TabsTrigger value="users">Người dùng</TabsTrigger>
           <TabsTrigger value="zones">Khu phụ trách</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
@@ -255,6 +260,7 @@ export default function AdminPage() {
         <TabsContent value="sla"><Dashboard /></TabsContent>
         <TabsContent value="export"><Exports /></TabsContent>
       </Tabs>
+      </div>
     </div>
   )
 }

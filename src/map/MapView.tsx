@@ -55,7 +55,7 @@ function Init({ alpha, onReady, pickRef }: { alpha: number; onReady: (v: CViewer
       v.imageryLayers.add(new ImageryLayer(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })))
     }
     const globe = scene.globe
-    globe.baseColor = Color.fromCssColorString('#3f4f45')
+    globe.baseColor = Color.fromCssColorString('#dfe7e1') // nền sáng khi chưa có ảnh nền
     globe.depthTestAgainstTerrain = true
     globe.translucency.enabled = true // NHÌN XUYÊN ĐẤT
     globe.translucency.frontFaceAlpha = alpha

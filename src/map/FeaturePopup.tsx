@@ -7,28 +7,21 @@ import { Badge } from '@/components/ui/badge'
 import { rpc } from '@/lib/supabase'
 import type { Feature } from '@/lib/types'
 import { buildCsgTree, describeCsg } from '@/lib/csg'
-import { fmtDate, fmtNum } from '@/lib/utils'
+import { fmtDate } from '@/lib/utils'
+import { fieldLabel, formatField } from '@/lib/fields'
 
-const LABELS: Record<string, string> = {
-  code: 'Mã', kind: 'Loại', status: 'Trạng thái', diameter_mm: 'Đường kính (mm)', diameter_m: 'Đường kính hố (m)',
-  material: 'Vật liệu', material_code: 'Mã vật liệu', manning_n: 'Hệ số Manning n', install_year: 'Năm lắp đặt',
-  capacity_m3s: 'Sức chứa chảy đầy (m³/s)', name: 'Tên', floors: 'Số tầng', has_basement: 'Tầng hầm',
-  year_built: 'Năm xây', owner: 'Đơn vị quản lý', max_depth_cm: 'Độ sâu ngập (cm)', source_url: 'Nguồn', note: 'Ghi chú',
-  from_mh: 'Hố ga thượng lưu', to_mh: 'Hố ga hạ lưu', source: 'Nguồn dữ liệu', area_m2: 'Diện tích (m²)', type: 'Loại lỗi',
-  severity: 'Mức độ', pipe_code: 'Cống', image_path: 'Ảnh',
-}
 const SPATIAL = new Set(['rim_elev_m', 'invert_elev_m', 'depth_m', 'up_invert_m', 'down_invert_m', 'length_m', 'slope', 'height_m', 'base_elev_m', 'chainage_m'])
 const TEMPORAL = new Set(['valid_from', 'valid_to', 'tx_from', 'tx_to', 'occurred_at', 'created_at', 'accepted_at', 'arrived_at', 'resolved_at', 'inspected_at'])
 const HIDDEN = new Set(['layer', 'csg', 'id', 'vid', 'surfaces', 'lod', 'public', 'user_id', 'technician_id'])
 
 function Row({ k, v }: { k: string; v: unknown }) {
-  let val: React.ReactNode = typeof v === 'boolean' ? (v ? 'Có' : 'Không') : fmtNum(v as any, 4)
-  if (k === 'source_url' && typeof v === 'string') val = <a className="text-primary underline" href={v} target="_blank" rel="noreferrer">mở liên kết</a>
-  if (TEMPORAL.has(k)) val = fmtDate(v as string)
+  let val: React.ReactNode = formatField(k, v)
+  if (k === 'source_url' && typeof v === 'string') val = <a className="font-medium text-primary underline underline-offset-2" href={v} target="_blank" rel="noreferrer">Mở nguồn</a>
+  if (k === 'status' && typeof v === 'string') val = <Badge variant={v === 'active' ? 'success' : v === 'damaged' ? 'destructive' : v === 'blocked' ? 'violet' : 'warning'} dot>{formatField(k, v)}</Badge>
   return (
-    <div className="grid grid-cols-[45%_55%] gap-1 border-b py-1 text-xs">
-      <span className="text-muted-foreground">{LABELS[k] ?? k}</span>
-      <span className="break-words font-medium">{val}</span>
+    <div className="grid grid-cols-[44%_56%] gap-2 border-b border-dashed py-1.5 text-sm last:border-0">
+      <span className="text-muted-foreground">{fieldLabel(k)}</span>
+      <span className="break-words font-medium tabular">{val}</span>
     </div>
   )
 }
@@ -50,25 +43,25 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
   const title = { pipe: 'Cống', manhole: 'Hố ga', building: 'Công trình', utility: 'Công trình ngầm', flood: 'Điểm ngập', defect: 'Lỗi lòng cống', incident: 'Sự cố', zone: 'Khu phụ trách' }[layer] ?? layer
 
   return (
-    <div className="pointer-events-auto w-[360px] rounded-lg border bg-background/95 shadow-xl backdrop-blur">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div>
-          <div className="text-[11px] uppercase text-muted-foreground">{title}{p.public && ' (công khai, rút gọn)'}</div>
-          <div className="font-semibold">{p.code ?? p.name ?? `#${p.id}`}</div>
+    <section className="map-panel pointer-events-auto w-full animate-fade-in sm:w-[380px]" aria-label={`Thông tin ${title}`}>
+      <header className="flex items-start justify-between gap-2 border-b px-4 py-3">
+        <div className="min-w-0">
+          <p className="section-title">{title}{p.public && ' · công khai (rút gọn)'}</p>
+          <h2 className="truncate text-lg font-semibold">{p.code ?? p.name ?? `#${p.id}`}</h2>
         </div>
-        <Button size="icon" variant="ghost" onClick={onClose}><X className="h-4 w-4" /></Button>
-      </div>
-      <Tabs defaultValue="nn" className="px-3 pb-3">
-        <TabsList className="mt-2 grid w-full grid-cols-3 [&>button]:px-1 [&>button]:text-[11px]">
-          <TabsTrigger value="nn" title="Ngữ nghĩa">NN · Ngữ nghĩa</TabsTrigger>
-          <TabsTrigger value="kg" title="Không gian">KG · Không gian</TabsTrigger>
-          <TabsTrigger value="tg" title="Thời gian">TG · Thời gian</TabsTrigger>
+        <Button size="icon" variant="ghost" onClick={onClose} aria-label="Đóng thông tin"><X /></Button>
+      </header>
+      <Tabs defaultValue="nn" className="px-4 pb-4">
+        <TabsList className="mt-3 grid w-full grid-cols-3">
+          <TabsTrigger value="nn" title="Ngữ nghĩa – thuộc tính">Ngữ nghĩa</TabsTrigger>
+          <TabsTrigger value="kg" title="Không gian – hình học 3D">Không gian</TabsTrigger>
+          <TabsTrigger value="tg" title="Thời gian – phiên bản & sự kiện">Thời gian</TabsTrigger>
         </TabsList>
-        <TabsContent value="nn" className="max-h-[50vh] overflow-auto">
+        <TabsContent value="nn" className="mt-2 max-h-[46vh] overflow-auto pr-1">
           {semantic.map(([k, v]) => <Row key={k} k={k} v={v} />)}
           {extra}
         </TabsContent>
-        <TabsContent value="kg" className="max-h-[50vh] overflow-auto">
+        <TabsContent value="kg" className="mt-2 max-h-[46vh] overflow-auto pr-1">
           <Row k="Kiểu hình học" v={`${g.type}${zs.length ? ' Z' : ''}`} />
           <Row k="CRS lưu trữ / hiển thị" v="EPSG:32648 (UTM 48N) → EPSG:4326" />
           {coords.length > 0 && <Row k="Số đỉnh" v={coords.length} />}
@@ -81,7 +74,7 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
           {tree && (
             <div className="mt-2">
               <div className="text-xs font-medium">Cây CSG (frontend boundary evaluation → khối trụ)</div>
-              <pre className="mt-1 rounded bg-muted p-2 text-[10px] leading-4">{describeCsg(tree)}</pre>
+              <pre className="mt-1 rounded bg-muted p-2 text-xs leading-4">{describeCsg(tree)}</pre>
             </div>
           )}
           {layer === 'building' && (
@@ -91,16 +84,16 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
             </div>
           )}
         </TabsContent>
-        <TabsContent value="tg" className="max-h-[50vh] overflow-auto">
+        <TabsContent value="tg" className="mt-2 max-h-[46vh] overflow-auto pr-1">
           {Object.entries(p).filter(([k]) => TEMPORAL.has(k)).map(([k, v]) => <Row key={k} k={k} v={v} />)}
           {assetType && !p.public && (
             <>
-              <div className="mt-2 text-xs font-medium">Phiên bản (valid time × transaction time)</div>
+              <div className="mt-3 section-title">Phiên bản (valid time × transaction time)</div>
               {history.isLoading && <div className="text-xs text-muted-foreground">Đang tải…</div>}
               {history.error && <div className="text-xs text-destructive">{(history.error as Error).message}</div>}
               <div className="mt-1 space-y-1">
                 {history.data?.versions?.map((v: any) => (
-                  <div key={v.vid ?? v.id} className="rounded border p-1.5 text-[11px]">
+                  <div key={v.vid ?? v.id} className="rounded border p-1.5 text-xs">
                     <div className="flex items-center gap-1">
                       {v.current ? <Badge variant="success">hiện hành</Badge> : v.tx_to ? <Badge variant="outline">đã thay thế (tx)</Badge> : <Badge variant="secondary">lịch sử (valid)</Badge>}
                       {v.diameter_mm && <span>D{v.diameter_mm}</span>}
@@ -111,10 +104,10 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
                   </div>
                 ))}
               </div>
-              <div className="mt-2 text-xs font-medium">Sự kiện (event-based) – {history.data?.events?.length ?? 0}</div>
+              <div className="mt-3 section-title">Sự kiện (event-based) – {history.data?.events?.length ?? 0}</div>
               <div className="mt-1 space-y-1">
                 {history.data?.events?.slice(0, 30).map((e: any) => (
-                  <div key={e.id} className="border-l-2 border-primary pl-2 text-[11px]">
+                  <div key={e.id} className="border-l-2 border-primary pl-2 text-xs">
                     <span className="font-semibold">{e.event_type}</span> · {fmtDate(e.valid_time)}
                     <div className="truncate text-muted-foreground">{JSON.stringify(e.detail)}</div>
                   </div>
@@ -127,6 +120,6 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
           )}
         </TabsContent>
       </Tabs>
-    </div>
+    </section>
   )
 }
