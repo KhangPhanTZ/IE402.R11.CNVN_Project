@@ -592,7 +592,7 @@ def main() -> None:
             p["year"] = 2008
         else:
             dd = design["dist"].get(p["to"], 0)
-            p["year"] = max(1996, min(2023, int(1996 + dd / 1100 * 20 + RNG.randint(-3, 6))))
+            p["year"] = max(1996, min(2024, int(1996 + dd / 900 * 24 + RNG.randint(-3, 4))))
         p["vf"] = install_date(p["year"])
         p["tx"] = min(p["vf"] + timedelta(days=RNG.randint(20, 300)), NOW - timedelta(days=30))
         p["mat"] = "BTCT" if p["D"] >= 1000 else ("GACH" if p["year"] < 2002 and RNG.random() < 0.5 else RNG.choice(["BTCT", "HDPE"]))

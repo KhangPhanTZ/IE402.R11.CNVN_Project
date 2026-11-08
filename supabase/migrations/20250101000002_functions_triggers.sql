@@ -142,6 +142,9 @@ declare
 begin
   -- bản ghi lịch sử do versioning sinh ra: không kiểm tra lại
   if new.valid_to is not null or new.tx_to is not null then return new; end if;
+  if new.from_mh = new.to_mh then
+    raise exception 'TOPOLOGY: cống phải nối hai hố ga khác nhau (from_mh = to_mh = %)', new.from_mh using errcode = '23514';
+  end if;
 
   select * into mf from public.manholes
    where id = new.from_mh and valid_to is null and tx_to is null;
