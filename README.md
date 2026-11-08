@@ -87,29 +87,16 @@ Mật khẩu chung **`Demo@123`** (trang đăng nhập có nút đăng nhập nh
 
 ## Deploy
 
-Đang chạy trên **Vercel** (giao diện) + **Supabase Cloud** (Postgres + PostGIS, Auth, Storage, Realtime). Deploy lại:
+Đang chạy trên **Vercel** (giao diện) + **Supabase Cloud** (Postgres + PostGIS, Auth, Storage, Realtime).
+
+- **Tự động:** repo đã nối với Vercel – mỗi lần push/merge vào `main` Vercel tự build và cập nhật https://ie402-thuduc-drainage.vercel.app; nhánh khác có bản xem trước riêng. Biến `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` khai báo trong *Project Settings → Environment Variables* của Vercel.
+- **CSDL:** thay đổi schema/dữ liệu không tự lên cloud – chạy bằng script:
 
 ```bash
-SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py supabase/migrations/*.sql
+SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py supabase/migrations/<file mới>.sql
 ```
 
-```bash
-PGPASSWORD=postgres bash scripts/deploy/export_seed_sql.sh ie402 deploy_sql
-```
-
-```bash
-SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py deploy_sql/*.sql
-```
-
-```bash
-VITE_SUPABASE_URL=https://<ref>.supabase.co VITE_SUPABASE_ANON_KEY=... npm run build
-```
-
-```bash
-VERCEL_TOKEN=... python3 scripts/deploy/vercel_deploy.py dist ie402-thuduc-drainage
-```
-
-Lần lượt: tạo schema trên project trống → xuất dữ liệu đã seed ở local → nạp lên cloud → build trỏ tới cloud → đưa lên Vercel. Nhớ đặt *Site URL* trong Supabase Auth là domain Vercel.
+Nạp lại toàn bộ dữ liệu demo (project trống): `bash scripts/deploy/export_seed_sql.sh ie402 deploy_sql` rồi chạy `supabase_sql.py deploy_sql/*.sql`. Deploy thủ công giao diện (không qua Git): `VERCEL_TOKEN=... python3 scripts/deploy/vercel_deploy.py dist ie402-thuduc-drainage`.
 
 ## Cấu trúc
 
