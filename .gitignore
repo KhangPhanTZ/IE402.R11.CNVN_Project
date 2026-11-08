@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+__pycache__/
+.venv/
+supabase/.temp/
+supabase/.branches/
+.dev-storage/
