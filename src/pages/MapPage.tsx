@@ -120,6 +120,9 @@ export default function MapPage() {
 
   const bounds = useMemo(() => bbox(L.zones ?? L.tin ?? null), [L.zones, L.tin])
   const groundZ = useMemo(() => tinSampler(L.tin), [L.tin])
+  // Dải mặt đường: đặt theo cao độ TIN khi hiển thị địa hình TIN; với Cesium World Terrain (cao độ khác TIN
+  // vài mét) thì để corridor bám mặt đất thật. Điểm/nhãn vẫn dùng TIN + bỏ kiểm tra độ sâu nên luôn hiện.
+  const surfaceZ = isStaff && terrain === 'tin' ? groundZ : null
 
   useEffect(() => {
     if (vis.defects && !defects && isStaff) {
@@ -199,7 +202,7 @@ export default function MapPage() {
         onTerrainError={(m) => { setTerrainError(m); setTerrain('tin') }}>
         <TinLayer fc={L.tin} show={vis.tin && alpha > 0.02} alpha={alpha} />
         <BuildingsLayer fc={L.buildings} highlight={result?.highlight} show={vis.buildings} />
-        <RoadsLayer fc={L.roads} show={vis.roads} groundZ={isStaff ? groundZ : null} />
+        <RoadsLayer fc={L.roads} show={vis.roads} groundZ={surfaceZ} />
         <PipesLayer fc={pipes} highlight={result?.highlight} show={vis.pipes} />
         <ManholesLayer fc={manholes} highlight={result?.highlight} show={vis.manholes} pickedIds={pipeEnds.map((f) => f.properties.id)} />
         <UtilitiesLayer fc={L.utilities} highlight={result?.highlight} show={vis.utilities} />
@@ -292,6 +295,9 @@ export default function MapPage() {
                 </Select>
                 <IonTokenField onSaved={() => { setTerrainError(null); setTerrain('world') }} onCleared={() => terrain === 'world' && setTerrain('tin')} />
                 {terrainError && <p className="text-xs text-danger">{terrainError}</p>}
+                {terrain === 'world' && (
+                  <p className="text-xs text-subtle">World Terrain chỉ làm nền tham khảo: cao độ cống, hố ga, nhà tính theo TIN của dự án nên có thể lệch vài mét so với mặt đất này. Phân tích (Q2, Q5, Q6, Q11) luôn dùng TIN.</p>
+                )}
               </div>
             )}
 
