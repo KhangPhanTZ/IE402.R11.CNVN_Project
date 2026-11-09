@@ -56,8 +56,8 @@ function Init({ alpha, onReady, pickRef }: { alpha: number; onReady: (v: CViewer
     globe.translucency.frontFaceAlpha = alpha
     globe.translucency.backFaceAlpha = alpha
     globe.showGroundAtmosphere = false
-    scene.screenSpaceCameraController.enableCollisionDetection = false // cho phép camera chui xuống dưới mặt đất
-    scene.screenSpaceCameraController.minimumZoomDistance = 2
+    // Camera chỉ được chui xuống dưới mặt đất khi mặt đất trong suốt (xem effect theo alpha bên dưới)
+    scene.screenSpaceCameraController.enableCollisionDetection = alpha >= 0.99
     scene.fog.enabled = false
     scene.camera.setView({
       destination: Cartesian3.fromDegrees(CENTER.lon, CENTER.lat - 0.0105, 850 + HEIGHT_OFFSET),
@@ -99,9 +99,32 @@ export function MapView({ children, alpha, terrain, basemap = 'light', tin, onRe
   // Thanh trượt độ trong suốt mặt đất
   useEffect(() => {
     if (!viewer) return
-    viewer.scene.globe.translucency.frontFaceAlpha = alpha
-    viewer.scene.globe.translucency.backFaceAlpha = alpha
-    viewer.scene.requestRender()
+    const scene = viewer.scene
+    scene.globe.translucency.frontFaceAlpha = alpha
+    scene.globe.translucency.backFaceAlpha = alpha
+    // Mặt đất ĐẶC: bật chống va chạm để zoom không xuyên qua mặt đất (nếu không sẽ thấy mặt dưới của
+    // địa cầu → màn hình trắng/đen). Mặt đất trong suốt: cho phép camera xuống dưới để xem cống.
+    const solid = alpha >= 0.99
+    scene.screenSpaceCameraController.enableCollisionDetection = solid
+    // Đặc: không zoom sát hơn 25 m (gần hơn ảnh nền chỉ còn mảng nhoè); trong suốt: cho sát 2 m để soi cống
+    scene.screenSpaceCameraController.minimumZoomDistance = solid ? 25 : 2
+    // Chốt chặn mỗi khung hình: nếu camera thấp hơn mặt đất (xảy ra khi zoom lúc ô địa hình chi tiết – nhất là
+    // Cesium World Terrain – chưa tải xong, bộ chống va chạm của Cesium chưa biết mặt đất) thì nhấc camera lên.
+    const keepAbove = (lift: number) => {
+      const cam = scene.camera.positionCartographic
+      const ground = scene.globe.getHeight(cam)
+      if (ground === undefined || cam.height >= ground + 5) return
+      const c = Cartographic.toCartesian(new Cartographic(cam.longitude, cam.latitude, ground + lift))
+      scene.camera.cancelFlight()
+      scene.camera.setView({ destination: c, orientation: { heading: scene.camera.heading, pitch: scene.camera.pitch, roll: 0 } })
+    }
+    let remove: (() => void) | undefined
+    if (solid) {
+      keepAbove(40)
+      remove = scene.preRender.addEventListener(() => keepAbove(25))
+    }
+    scene.requestRender()
+    return () => remove?.()
   }, [viewer, alpha])
 
   // Bản đồ nền

@@ -296,7 +296,7 @@ export default function MapPage() {
                 <IonTokenField onSaved={() => { setTerrainError(null); setTerrain('world') }} onCleared={() => terrain === 'world' && setTerrain('tin')} />
                 {terrainError && <p className="text-xs text-danger">{terrainError}</p>}
                 {terrain === 'world' && (
-                  <p className="text-xs text-subtle">World Terrain chỉ làm nền tham khảo: cao độ cống, hố ga, nhà tính theo TIN của dự án nên có thể lệch vài mét so với mặt đất này. Phân tích (Q2, Q5, Q6, Q11) luôn dùng TIN.</p>
+                  <p className="text-xs text-subtle">World Terrain là địa hình thật, còn cống, hố ga, nhà đặt theo TIN của dự án (giả lập 0,8–4,6 m): nơi địa hình thật cao hơn (phía bắc, tới ~15 m) chúng bị che dưới mặt đất – bấm “Nhìn xuyên đất” để xem. Phân tích (Q2, Q5, Q6, Q11) luôn dùng TIN.</p>
                 )}
               </div>
             )}
