@@ -96,6 +96,8 @@ Mật khẩu chung **`Demo@123`** (trang đăng nhập có nút đăng nhập nh
 SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... python3 scripts/deploy/supabase_sql.py supabase/migrations/<file mới>.sql
 ```
 
+Gỡ migration 5 (đường / tuyến cống / hố thu) nếu cần quay lại bản cũ: `supabase_sql.py scripts/deploy/rollback_roads.sql`, rồi nạp lại dữ liệu sinh bằng `seed.py` của commit cũ.
+
 Nạp lại toàn bộ dữ liệu demo (project trống): `bash scripts/deploy/export_seed_sql.sh ie402 deploy_sql` rồi chạy `supabase_sql.py deploy_sql/*.sql`. Deploy thủ công giao diện (không qua Git): `VERCEL_TOKEN=... python3 scripts/deploy/vercel_deploy.py dist ie402-thuduc-drainage`.
 
 ## Cấu trúc
