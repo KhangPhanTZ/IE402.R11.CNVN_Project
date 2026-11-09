@@ -13,6 +13,7 @@ import { ResultTable } from '@/map/ResultTable'
 import { MapLegend } from '@/map/MapLegend'
 import { MapControls } from '@/map/MapControls'
 import { BasemapSwitcher } from '@/map/BasemapSwitcher'
+import { IonTokenField, useIonToken } from '@/map/IonTokenField'
 import { useCommandPalette, useRegisterCommands, type CmdGroup } from '@/components/CommandPalette'
 import { BASEMAPS, bbox, LOD_DISTANCE, tinSampler, type BasemapKey } from '@/map/cesiumUtil'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -73,6 +74,8 @@ export default function MapPage() {
   const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: false, buildings: true, roads: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
   const [alpha, setAlpha] = useState(1)
   const [terrain, setTerrain] = useState<TerrainMode>('tin')
+  const [terrainError, setTerrainError] = useState<string | null>(null)
+  const ionToken = useIonToken()
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [override, setOverride] = useState<{ fc: FeatureCollection; label: string } | null>(null)
   const [profile, setProfile] = useState<FeatureCollection | null>(null)
@@ -192,7 +195,8 @@ export default function MapPage() {
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden', mode !== 'none' && 'map-picking')}>
-      <MapView alpha={alpha} basemap={basemap} terrain={isStaff ? terrain : 'ellipsoid'} tin={L.tin} onReady={setViewer} onPick={onPick}>
+      <MapView alpha={alpha} basemap={basemap} terrain={isStaff ? terrain : 'ellipsoid'} tin={L.tin} onReady={setViewer} onPick={onPick}
+        onTerrainError={(m) => { setTerrainError(m); setTerrain('tin') }}>
         <TinLayer fc={L.tin} show={vis.tin && alpha > 0.02} alpha={alpha} />
         <BuildingsLayer fc={L.buildings} highlight={result?.highlight} show={vis.buildings} />
         <RoadsLayer fc={L.roads} show={vis.roads} groundZ={isStaff ? groundZ : null} />
@@ -281,11 +285,13 @@ export default function MapPage() {
             {isStaff && (
               <div className="space-y-1.5">
                 <Label htmlFor="terrain">Địa hình</Label>
-                <Select id="terrain" value={terrain} onChange={(e) => setTerrain(e.target.value as TerrainMode)}>
+                <Select id="terrain" value={terrain} onChange={(e) => { setTerrainError(null); setTerrain(e.target.value as TerrainMode) }}>
                   <option value="tin">TIN của dự án (terrain_tin)</option>
                   <option value="ellipsoid">Mặt ellipsoid phẳng</option>
-                  <option value="world" disabled={!import.meta.env.VITE_CESIUM_TOKEN}>Cesium World Terrain (cần token)</option>
+                  <option value="world" disabled={!ionToken}>Cesium World Terrain{ionToken ? '' : ' (nhập token bên dưới)'}</option>
                 </Select>
+                <IonTokenField onSaved={() => { setTerrainError(null); setTerrain('world') }} onCleared={() => terrain === 'world' && setTerrain('tin')} />
+                {terrainError && <p className="text-xs text-danger">{terrainError}</p>}
               </div>
             )}
 
