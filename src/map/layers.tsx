@@ -323,6 +323,40 @@ export function UtilitiesLayer({ fc, highlight, show }: { fc?: FeatureCollection
 }
 
 // ---------------------------------------------------------------------------
+// ĐƯỜNG: dải mặt đường (corridor) bám địa hình, bề rộng thật từ OSM (hoặc ước theo cấp đường)
+// ---------------------------------------------------------------------------
+const ROAD_COLOR: Record<string, string> = { secondary: '#64748b', tertiary: '#78869a', primary: '#475569' }
+
+export function RoadsLayer({ fc, show, groundZ }: { fc?: FeatureCollection; show: boolean; groundZ?: ((lon: number, lat: number) => number) | null }) {
+  useDataSource(
+    'roads',
+    show,
+    (ds) => {
+      for (const f of fc?.features ?? []) {
+        const p = f.properties
+        const coords = f.geometry.coordinates as number[][]
+        if (coords.length < 2) continue
+        const color = css(ROAD_COLOR[p.road_class] ?? '#94a3b8', 0.32)
+        // Có TIN: đặt mặt đường ở cao độ địa hình (vẫn thấy khi "nhìn xuyên đất"); không có: bám mặt đất
+        const height = groundZ ? Math.max(...coords.map(([lon, lat]) => groundZ(lon, lat))) + 0.08 : undefined
+        ds.entities.add({
+          id: `road:${p.id}`,
+          name: p.name,
+          corridor: {
+            positions: Cartesian3.fromDegreesArray(coords.flatMap(([lon, lat]) => [lon, lat])),
+            width: Number(p.width_m) || 6,
+            material: color,
+            height,
+          },
+        })
+      }
+    },
+    [fc, groundZ],
+  )
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // ĐIỂM NGẬP, SỰ CỐ, KHU PHỤ TRÁCH
 // ---------------------------------------------------------------------------
 type GroundZ = ((lon: number, lat: number) => number) | null | undefined

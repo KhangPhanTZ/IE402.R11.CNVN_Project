@@ -21,7 +21,7 @@ export interface CsgNode {
   params: { radius: number; z0: number; height: number; dx?: number; dy?: number; role?: string }
 }
 
-export type LayerKey = 'tin' | 'buildings' | 'pipes' | 'manholes' | 'utilities' | 'flood' | 'defects' | 'zones' | 'incidents'
+export type LayerKey = 'tin' | 'buildings' | 'roads' | 'pipes' | 'manholes' | 'utilities' | 'flood' | 'defects' | 'zones' | 'incidents'
 
 /** Tô màu theo kết quả phân tích: id → màu CSS */
 export interface Highlight {

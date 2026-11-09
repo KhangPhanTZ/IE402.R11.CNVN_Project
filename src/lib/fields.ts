@@ -38,6 +38,12 @@ export const FIELDS: Record<string, FieldDef> = {
   valid_from: { label: 'Hiệu lực từ', fmt: 'date' }, valid_to: { label: 'Hiệu lực đến', fmt: 'date' }, tx_from: { label: 'Ghi nhận từ', fmt: 'date' }, tx_to: { label: 'Ghi nhận đến', fmt: 'date' },
   step: { label: 'Bước', fmt: 'int' }, offset_m: { label: 'Lý trình', unit: 'm', fmt: 'num', digits: 1 }, rim_from: { label: 'Nắp đầu', unit: 'm', fmt: 'num' }, rim_to: { label: 'Nắp cuối', unit: 'm', fmt: 'num' },
   created_at: { label: 'Tạo lúc', fmt: 'date' }, accepted_at: { label: 'Nhận việc', fmt: 'date' }, arrived_at: { label: 'Có mặt', fmt: 'date' }, resolved_at: { label: 'Hoàn thành', fmt: 'date' },
+  road: { label: 'Đường' }, side: { label: 'Phía đường', fmt: 'kind' }, road_width_m: { label: 'Bề rộng đường', unit: 'm', fmt: 'num', digits: 1 },
+  inlet_type: { label: 'Kiểu hố thu', fmt: 'kind' }, blockage_pct: { label: 'Mức bồi lấp miệng thu', unit: '%', fmt: 'int' },
+  pipe_type: { label: 'Loại cống', fmt: 'kind' }, line_code: { label: 'Mã tuyến cống' }, line_name: { label: 'Tuyến cống' }, line_level: { label: 'Cấp tuyến', fmt: 'kind' },
+  road_class: { label: 'Cấp đường', fmt: 'kind' }, width_m: { label: 'Bề rộng lòng đường', unit: 'm', fmt: 'num', digits: 1 }, lanes: { label: 'Số làn', fmt: 'int' },
+  oneway: { label: 'Một chiều', fmt: 'bool' }, width_source: { label: 'Nguồn bề rộng', fmt: 'kind' }, osm_id: { label: 'OSM way', fmt: 'text' },
+  cause: { label: 'Nguyên nhân ngập', fmt: 'kind' },
   zone: { label: 'Khu' }, area_km2: { label: 'Diện tích', unit: 'km²', fmt: 'num', digits: 3 }, image_path: { label: 'Ảnh' },
 }
 
@@ -46,6 +52,14 @@ export const VALUE_VI: Record<string, string> = {
   manhole: 'Hố ga', inlet: 'Hố thu', outfall: 'Cửa xả', water: 'Cấp nước', power: 'Điện', telecom: 'Viễn thông',
   crack: 'Nứt', root: 'Rễ cây', deposit: 'Bồi lắng', collapse: 'Sập', pipe: 'Cống', building: 'Công trình', utility: 'CT ngầm',
   inspect: 'Kiểm tra', clean: 'Nạo vét', incident: 'Sự cố', repair: 'Sửa chữa', replace: 'Thay thế',
+  left: 'Bên trái', right: 'Bên phải', center: 'Tim đường',
+  curb: 'Miệng thu bó vỉa', grate: 'Song chắn mặt đường', combined: 'Kết hợp (bó vỉa + song chắn)',
+  along: 'Cống dọc đường', cross: 'Cống băng ngang', lateral: 'Nhánh nối hố thu', main: 'Cống chính', branch: 'Cống nhánh',
+  primary: 'Đường cấp 1', secondary: 'Đường chính', tertiary: 'Đường khu vực', unclassified: 'Đường chưa phân cấp',
+  residential: 'Đường nội bộ / hẻm', living_street: 'Đường dân sinh', service: 'Đường nội bộ',
+  osm_width: 'Thẻ width (OSM)', osm_lanes: 'Ước từ số làn (OSM)', class: 'Ước theo cấp đường',
+  low_terrain: 'Địa hình trũng', blocked_inlet: 'Hố thu bị lấp / tắc', undersized_pipe: 'Cống thiếu khả năng thoát',
+  tide: 'Triều cường', mixed: 'Nhiều nguyên nhân (trũng + triều + hố thu)',
 }
 
 export const fieldLabel = (k: string) => FIELDS[k]?.label ?? k

@@ -12,7 +12,7 @@ import { fieldLabel, formatField } from '@/lib/fields'
 
 const SPATIAL = new Set(['rim_elev_m', 'invert_elev_m', 'depth_m', 'up_invert_m', 'down_invert_m', 'length_m', 'slope', 'height_m', 'base_elev_m', 'chainage_m'])
 const TEMPORAL = new Set(['valid_from', 'valid_to', 'tx_from', 'tx_to', 'occurred_at', 'created_at', 'accepted_at', 'arrived_at', 'resolved_at', 'inspected_at'])
-const HIDDEN = new Set(['layer', 'csg', 'id', 'vid', 'surfaces', 'lod', 'public', 'user_id', 'technician_id'])
+const HIDDEN = new Set(['layer', 'csg', 'id', 'vid', 'surfaces', 'lod', 'public', 'user_id', 'technician_id', 'segment_id', 'line_id', 'road_id'])
 
 function Row({ k, v }: { k: string; v: unknown }) {
   let val: React.ReactNode = formatField(k, v)
@@ -40,7 +40,7 @@ export function FeaturePopup({ feature, onClose, onShowBRep, extra }: { feature:
   const zs = coords.map((c) => c[2]).filter((z) => z !== undefined)
   const semantic = Object.entries(p).filter(([k]) => !HIDDEN.has(k) && !SPATIAL.has(k) && !TEMPORAL.has(k) && (typeof p[k] !== 'object' || p[k] === null))
   const tree = layer === 'manhole' ? buildCsgTree(p.csg) : null
-  const title = { pipe: 'Cống', manhole: 'Hố ga', building: 'Công trình', utility: 'Công trình ngầm', flood: 'Điểm ngập', defect: 'Lỗi lòng cống', incident: 'Sự cố', zone: 'Khu phụ trách' }[layer] ?? layer
+  const title = layer === 'manhole' && p.kind === 'inlet' ? 'Hố thu nước mặt đường' : layer === 'manhole' && p.kind === 'outfall' ? 'Cửa xả' : layer === 'pipe' && p.pipe_type === 'lateral' ? 'Nhánh nối hố thu' : { road: 'Đoạn đường', pipe: 'Cống', manhole: 'Hố ga', building: 'Công trình', utility: 'Công trình ngầm', flood: 'Điểm ngập', defect: 'Lỗi lòng cống', incident: 'Sự cố', zone: 'Khu phụ trách' }[layer] ?? layer
 
   return (
     <section className="map-panel pointer-events-auto w-full animate-fade-in sm:w-[380px]" aria-label={`Thông tin ${title}`}>

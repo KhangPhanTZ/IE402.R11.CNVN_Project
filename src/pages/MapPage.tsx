@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Viewer as CViewer } from 'cesium'
 import { AnimatePresence, animate, motion } from 'motion/react'
-import { ChevronsLeft, ChevronsRight, CircleDot, Eye, EyeOff, GitCommitHorizontal, Info, Layers, Lock, Map as MapIcon, PencilRuler, Search, Sigma, X } from 'lucide-react'
+import { ChevronsLeft, ChevronsRight, CircleDot, Eye, EyeOff, GitCommitHorizontal, Info, Layers, Lock, Map as MapIcon, PencilRuler, Route, Search, Sigma, X } from 'lucide-react'
 import { MapView, flyTo, type PickInfo, type TerrainMode } from '@/map/MapView'
-import { BRepLayer, BuildingsLayer, FloodLayer, IncidentsLayer, ManholesLayer, OverlayLayer, PipesLayer, TinLayer, UtilitiesLayer, WaterSurface, ZonesLayer } from '@/map/layers'
+import { BRepLayer, BuildingsLayer, FloodLayer, IncidentsLayer, ManholesLayer, OverlayLayer, PipesLayer, RoadsLayer, TinLayer, UtilitiesLayer, WaterSurface, ZonesLayer } from '@/map/layers'
 import { FeaturePopup } from '@/map/FeaturePopup'
 import { AnalysisPanel, type AnalysisResult } from '@/map/AnalysisPanel'
 import { EditPanel, type EditMode } from '@/map/EditPanel'
@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 const LAYERS: { key: LayerKey; label: string; swatch: string; staff?: boolean }[] = [
   { key: 'pipes', label: 'Cống', swatch: STATUS.active.color },
   { key: 'manholes', label: 'Hố ga (khối CSG)', swatch: '#334155' },
+  { key: 'roads', label: 'Đường (bề rộng thật)', swatch: '#94a3b8' },
   { key: 'flood', label: 'Điểm ngập', swatch: '#0284c7' },
   { key: 'incidents', label: 'Sự cố', swatch: '#dc2626' },
   { key: 'utilities', label: 'Công trình ngầm khác', swatch: '#10b981', staff: true },
@@ -69,7 +70,7 @@ export default function MapPage() {
   const [viewer, setViewer] = useState<CViewer | null>(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [tab, setTab] = useState('layers')
-  const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: false, buildings: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
+  const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: false, buildings: true, roads: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
   const [alpha, setAlpha] = useState(1)
   const [terrain, setTerrain] = useState<TerrainMode>('tin')
   const [result, setResult] = useState<AnalysisResult | null>(null)
@@ -92,11 +93,27 @@ export default function MapPage() {
   // Chỉ mục id → feature để tra cứu khi click
   const index = useMemo(() => {
     const m = new Map<string, Feature>()
-    for (const fc of [pipes, manholes, L.buildings, L.utilities, L.flood, L.incidents, L.zones, result?.overlay, defects]) {
+    for (const fc of [L.roads, pipes, manholes, L.buildings, L.utilities, L.flood, L.incidents, L.zones, result?.overlay, defects]) {
       for (const f of fc?.features ?? []) if (f.id) m.set(f.id, f)
     }
     return m
-  }, [pipes, manholes, L.buildings, L.utilities, L.flood, L.incidents, L.zones, result, defects])
+  }, [L.roads, pipes, manholes, L.buildings, L.utilities, L.flood, L.incidents, L.zones, result, defects])
+
+  // Tuyến đường (gộp các đoạn cùng tên) để tìm theo tên đường; chỉ lấy đường có hố ga/cống
+  const roadItems = useMemo(() => {
+    const used = new Set<string>()
+    for (const f of [...(manholes?.features ?? []), ...(pipes?.features ?? [])]) if (f.properties.road) used.add(f.properties.road)
+    const byName = new Map<string, Feature[]>()
+    for (const f of L.roads?.features ?? []) {
+      const n = f.properties.name as string
+      if (!used.has(n) && f.properties.road_class === 'residential' && n.startsWith('Hẻm không tên')) continue
+      byName.set(n, [...(byName.get(n) ?? []), f])
+    }
+    return [...byName.entries()].map(([name, segs]) => ({
+      name, segs, used: used.has(name),
+      inlets: (manholes?.features ?? []).filter((f) => f.properties.road === name && f.properties.kind === 'inlet').length,
+    }))
+  }, [L.roads, manholes, pipes])
 
   const bounds = useMemo(() => bbox(L.zones ?? L.tin ?? null), [L.zones, L.tin])
   const groundZ = useMemo(() => tinSampler(L.tin), [L.tin])
@@ -154,12 +171,17 @@ export default function MapPage() {
   const commands: CmdGroup[] = useMemo(() => [
     { heading: 'Hố ga & cống', items: [...(manholes?.features ?? []), ...(pipes?.features ?? [])].filter((f) => f.properties.code).map((f) => ({
       id: f.id ?? f.properties.code, label: f.properties.code, keywords: f.properties.layer,
-      hint: f.properties.layer === 'pipe' ? `Cống${f.properties.diameter_mm ? ` D${f.properties.diameter_mm}` : ''}` : f.properties.kind === 'outfall' ? 'Cửa xả' : f.properties.kind === 'inlet' ? 'Hố thu' : 'Hố ga',
+      hint: (f.properties.layer === 'pipe' ? `Cống${f.properties.diameter_mm ? ` D${f.properties.diameter_mm}` : ''}` : f.properties.kind === 'outfall' ? 'Cửa xả' : f.properties.kind === 'inlet' ? 'Hố thu' : 'Hố ga')
+        + (f.properties.road ? ` · ${f.properties.road}` : ''),
       icon: f.properties.layer === 'pipe' ? <GitCommitHorizontal /> : <CircleDot />, run: () => focusOn(f) })) },
+    { heading: 'Tuyến đường', items: roadItems.map((r) => ({
+      id: `roadname:${r.name}`, label: r.name, keywords: 'đường duong road',
+      hint: r.used ? `Có cống${r.inlets ? ` · ${r.inlets} hố thu` : ''}` : 'Chưa có cống',
+      icon: <Route />, run: () => focusOn(r.segs[Math.floor(r.segs.length / 2)], 320) })) },
     { heading: 'Lớp bản đồ', items: LAYERS.filter((l) => isStaff || !l.staff).map((l) => ({
       id: `layer:${l.key}`, label: `${vis[l.key] ? 'Ẩn' : 'Hiện'} lớp ${l.label}`, icon: vis[l.key] ? <EyeOff /> : <Eye />, run: () => setVis((v) => ({ ...v, [l.key]: !v[l.key] })) })) },
     { heading: 'Bản đồ nền', items: (Object.keys(BASEMAPS) as BasemapKey[]).map((k) => ({ id: `basemap:${k}`, label: `Bản đồ nền: ${BASEMAPS[k].label}`, icon: <MapIcon />, run: () => setBasemap(k) })) },
-  ], [manholes, pipes, vis, isStaff]) // eslint-disable-line react-hooks/exhaustive-deps
+  ], [manholes, pipes, vis, isStaff, roadItems]) // eslint-disable-line react-hooks/exhaustive-deps
   useRegisterCommands('map', commands)
 
   const draftOverlay: FeatureCollection | null = draft && mode === 'add-manhole'
@@ -173,6 +195,7 @@ export default function MapPage() {
       <MapView alpha={alpha} basemap={basemap} terrain={isStaff ? terrain : 'ellipsoid'} tin={L.tin} onReady={setViewer} onPick={onPick}>
         <TinLayer fc={L.tin} show={vis.tin && alpha > 0.02} alpha={alpha} />
         <BuildingsLayer fc={L.buildings} highlight={result?.highlight} show={vis.buildings} />
+        <RoadsLayer fc={L.roads} show={vis.roads} groundZ={isStaff ? groundZ : null} />
         <PipesLayer fc={pipes} highlight={result?.highlight} show={vis.pipes} />
         <ManholesLayer fc={manholes} highlight={result?.highlight} show={vis.manholes} pickedIds={pipeEnds.map((f) => f.properties.id)} />
         <UtilitiesLayer fc={L.utilities} highlight={result?.highlight} show={vis.utilities} />
