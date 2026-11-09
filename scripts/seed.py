@@ -11,6 +11,8 @@ Seed dữ liệu cho đồ án IE402 – mạng cống thoát nước & điểm 
   (buildings.source = 'osm' | 'mock'). Biến môi trường: OSM_REFRESH=1 (tải lại), SEED_OFFLINE=1 (không gọi mạng).
 - Địa hình: ~800 điểm dạng "lòng chảo" thấp nhất (+0,8 m) ở chợ, cao dần ra ngoài (+3..+5 m);
   TIN sinh trong PostGIS bằng ST_DelaunayTriangles.
+- Đường thật OSM → roads / road_segments (bề rộng từ width, lanes hoặc cấp đường). Đường rộng ≥ 10 m có 2 tuyến
+  cống 2 bên đường, hẻm có 1 tuyến ở tim; hố thu đặt sát mép bó vỉa, nối hố ga bằng nhánh D300 (sewer_lines theo phía).
 - Cố ý cài lỗi để demo: 3 cống dốc ngược, 3 cống chôn nông, 3 va chạm 3D, 1 cống nâng cấp D800→D1200.
 """
 from __future__ import annotations
@@ -171,26 +173,74 @@ MOCK_STREETS = [
 
 
 RANK = {"primary": 0, "secondary": 1, "tertiary": 2, "unclassified": 3, "residential": 3, "living_street": 4}
+# Bề rộng lòng đường mặc định theo cấp đường (m) khi OSM không có thẻ width/lanes
+CLASS_W = {"primary": 18.0, "secondary": 14.0, "tertiary": 10.0, "unclassified": 7.0, "residential": 6.0,
+           "living_street": 4.0, "service": 4.0}
+WIDE_M = 10.0          # đường rộng ≥ 10 m: đặt 2 tuyến cống 2 bên; hẹp hơn: 1 tuyến ở tim đường
+SIDE_FROM_CURB = 3.0   # tuyến cống 2 bên nằm dưới làn ngoài, cách mép bó vỉa ~3 m
+INLET_FROM_CURB = 0.3  # hố thu nằm sát mép bó vỉa
+MAJOR_NAMES = ("Võ Văn Ngân", "Kha Vạn Cân", "Đặng Văn Bi", "Tô Ngọc Vân", "Dương Văn Cam")
 
 
-def osm_streets(osm: dict, conv: dict, target_m: float = 9300) -> list[tuple[str, list[tuple[float, float]]]]:
-    """Chọn đường thật cho mạng cống: lấy toàn bộ đường chính (primary–tertiary), rồi thêm dần
-    đường nội bộ NỐI VÀO mạng đã chọn (dài trước) tới khi đủ ~target_m mét (~200 hố ga cách 46 m)."""
+def norm_road_name(name: str | None, hw: str, osm_id) -> str:
+    if not name:
+        return f"Hẻm không tên (OSM {osm_id})" if hw != "service" else f"Đường nội bộ (OSM {osm_id})"
+    n = name.strip()
+    if n.lower().startswith("đường ") and not n.lower().startswith("đường số"):
+        n = n[6:].strip()
+    return n
+
+
+def road_width(tags: dict, hw: str) -> tuple[float, int | None, str]:
+    """Bề rộng lòng đường: thẻ width của OSM; nếu không có thì ước từ số làn; cuối cùng theo cấp đường."""
+    lanes = None
+    try:
+        lanes = int(float(tags["lanes"])) if tags.get("lanes") else None
+    except ValueError:
+        lanes = None
+    oneway = tags.get("oneway") in ("yes", "1", "true")
+    base = CLASS_W.get(hw, 6.0) * (0.5 if oneway and lanes == 1 else 1.0)
+    w = tags.get("width")
+    if w:
+        try:
+            wv = float(w.replace("m", "").strip())
+            if 2.0 <= wv <= 40.0:            # bỏ giá trị rác (vd. "a", "6201") có trong dữ liệu OSM
+                return wv, lanes, "osm_width"
+        except ValueError:
+            pass
+    if lanes:
+        lw = lanes * 3.5 + 1.0
+        return (lw, lanes, "osm_lanes") if lw >= base else (base, lanes, "class")
+    return base, lanes, "class"
+
+
+def osm_ways(osm: dict, conv: dict) -> list[dict]:
+    """Mọi đường OSM (trừ service) trong phạm vi, đã cắt theo khung, kèm tên chuẩn hoá, bề rộng, số làn."""
     clip = box(-HALF_W + 25, -HALF_H + 25, HALF_W - 25, HALF_H - 25)
     ways = []
     for el in osm.get("elements", []):
-        hw = el.get("tags", {}).get("highway")
+        tags = el.get("tags", {})
+        hw = tags.get("highway")
         if el.get("type") != "way" or hw not in RANK or "geometry" not in el:
             continue
         line = LineString([conv[(g["lon"], g["lat"])] for g in el["geometry"]]).intersection(clip)
+        width, lanes, wsrc = road_width(tags, hw)
         for part in getattr(line, "geoms", [line]):
             if part.geom_type == "LineString" and part.length >= 25:
-                ways.append({"rank": RANK[hw], "name": el["tags"].get("name", f"{hw} (OSM {el['id']})"), "line": part})
+                ways.append({"rank": RANK[hw], "hw": hw, "osm_id": el["id"],
+                             "name": norm_road_name(tags.get("name"), hw, el["id"]), "line": part,
+                             "width": round(width, 1), "lanes": lanes, "wsrc": wsrc,
+                             "oneway": tags.get("oneway") in ("yes", "1", "true")})
+    return ways
+
+
+def osm_streets(ways: list[dict], target_m: float = 9300) -> list[dict]:
+    """Chọn đường thật cho mạng cống: mạng phát triển từ tuyến đường lớn gần chợ nhất, chỉ thêm đoạn
+    CHẠM vào mạng đã chọn (ưu tiên đường cấp cao, rồi đoạn dài) tới khi đủ ~target_m mét."""
     if not ways:
         return []
     from shapely.ops import snap
-    # Mạng phát triển từ tuyến đường lớn gần chợ nhất; chỉ thêm đoạn CHẠM vào mạng hiện có
-    # (ưu tiên đường cấp cao, rồi đoạn dài) ⇒ mạng cống luôn liên thông, bám đúng đường thật
+    ways = [dict(w) for w in ways]
     majors = [w for w in ways if w["rank"] <= 2] or ways
     first = min(majors, key=lambda w: w["line"].distance(Point(0, 0)))
     chosen = [first]
@@ -207,8 +257,33 @@ def osm_streets(osm: dict, conv: dict, target_m: float = 9300) -> list[tuple[str
         rest.remove(w)
         total += w["line"].length
         net_geom = unary_union([net_geom, w["line"]])
-    log(f"Chọn {len(chosen)}/{len(ways)} đoạn đường OSM, tổng {total:.0f} m")
-    return [(w["name"], list(w["line"].coords)) for w in chosen]
+    log(f"Chọn {len(chosen)}/{len(ways)} đoạn đường OSM cho mạng cống, tổng {total:.0f} m")
+    return chosen
+
+
+def mock_ways() -> list[dict]:
+    out = []
+    for i, (n, c) in enumerate(MOCK_STREETS):
+        hw = "secondary" if any(m in n for m in MAJOR_NAMES) else "residential"
+        out.append({"rank": RANK[hw], "hw": hw, "osm_id": None, "name": n, "line": LineString(c),
+                    "width": CLASS_W[hw], "lanes": None, "wsrc": "class", "oneway": False})
+    return out
+
+
+def orient_ways(ways: list[dict]) -> None:
+    """Đảo chiều các way cùng tên để chiều số hoá thống nhất ⇒ 'trái/phải' nhất quán trên cả tuyến đường."""
+    by = defaultdict(list)
+    for w in ways:
+        by[w["name"]].append(w)
+    for ws in by.values():
+        vx = vy = 0.0
+        for w in ws:
+            (x0, y0), (x1, y1) = w["line"].coords[0], w["line"].coords[-1]
+            if vx * (x1 - x0) + vy * (y1 - y0) < 0:
+                w["line"] = LineString(list(w["line"].coords)[::-1])
+                x0, y0, x1, y1 = x1, y1, x0, y0
+            vx += x1 - x0
+            vy += y1 - y0
 
 
 def snap_to_street(streets, names: list[str], near=(0.0, 0.0)):
@@ -264,11 +339,113 @@ def build_network(streets) -> Network:
         prev = None
         for i in range(n + 1):
             p = seg.interpolate(i / n, normalized=True)
-            k = net.add_node(p.x, p.y, street=names[sid])
+            k = net.add_node(p.x, p.y, street=names[sid], sid=sid)
             if prev is not None and prev != k:
-                net.edges.append({"a": prev, "b": k, "street": names[sid]})
+                net.edges.append({"a": prev, "b": k, "street": names[sid], "sid": sid})
             prev = k
     return net
+
+
+def unit(dx: float, dy: float) -> tuple[float, float]:
+    L = math.hypot(dx, dy) or 1.0
+    return dx / L, dy / L
+
+
+def way_tangent(line: LineString, x: float, y: float) -> tuple[float, float]:
+    d = line.project(Point(x, y))
+    a = line.interpolate(max(0.0, d - 2.0))
+    b = line.interpolate(min(line.length, d + 2.0))
+    return unit(b.x - a.x, b.y - a.y)
+
+
+def split_sides(net: Network, streets: list[dict]) -> Network:
+    """Đặt tuyến cống theo phía đường.
+    - Nút giao (bậc ≠ 2) và chỗ đổi tên/đổi bề rộng đường là "nút neo", giữ ở tim đường (hố ga giao lộ).
+    - Đoạn giữa 2 nút neo trên đường RỘNG (≥ WIDE_M): tách thành 2 tuyến song song, mỗi tuyến cách mép
+      bó vỉa SIDE_FROM_CURB m (trái/phải theo chiều số hoá của đường), cùng đổ về 2 hố ga giao lộ.
+    - Đường hẹp: 1 tuyến ở tim đường (side = center)."""
+    adj = defaultdict(list)
+    for i, e in enumerate(net.edges):
+        adj[e["a"]].append((e["b"], i))
+        adj[e["b"]].append((e["a"], i))
+
+    def wide(sid):
+        return streets[sid]["width"] >= WIDE_M
+
+    def anchor(k):
+        if len(adj[k]) != 2:
+            return True
+        (_, e1), (_, e2) = adj[k]
+        s1, s2 = net.edges[e1]["sid"], net.edges[e2]["sid"]
+        return streets[s1]["name"] != streets[s2]["name"] or wide(s1) != wide(s2)
+
+    out = Network()
+    for k, nd in net.nodes.items():
+        if anchor(k):
+            out.add_node(nd["x"], nd["y"], street=nd["street"], sid=nd["sid"], side="center", anchor=True)
+    seen_edges: set[int] = set()
+    for a in [k for k in net.nodes if anchor(k)]:
+        for nb, ei in adj[a]:
+            if ei in seen_edges:
+                continue
+            chain, edges = [a], [ei]
+            seen_edges.add(ei)
+            cur = nb
+            while not anchor(cur):
+                chain.append(cur)
+                (n1, e1), (n2, e2) = adj[cur]
+                nxt, ne = (n1, e1) if e1 not in seen_edges else (n2, e2)
+                if ne in seen_edges:
+                    break
+                seen_edges.add(ne)
+                edges.append(ne)
+                cur = nxt
+            chain.append(cur)
+            sid = net.edges[edges[0]]["sid"]
+            st = streets[sid]
+            inner = chain[1:-1]
+            akey = lambda k: out.key(net.nodes[k]["x"], net.nodes[k]["y"])  # noqa: E731
+            if not inner:
+                for e in (net.edges[i] for i in edges):
+                    out.edges.append({"a": akey(e["a"]), "b": akey(e["b"]), "street": e["street"], "sid": e["sid"],
+                                      "side": "center"})
+                continue
+            if not wide(sid):
+                keys = [akey(chain[0])]
+                for k in inner:
+                    nd = net.nodes[k]
+                    keys.append(out.add_node(nd["x"], nd["y"], street=nd["street"], sid=nd["sid"], side="center"))
+                keys.append(akey(chain[-1]))
+                for u, v in zip(keys, keys[1:]):
+                    out.edges.append({"a": u, "b": v, "street": st["name"], "sid": sid, "side": "center"})
+                continue
+            # Đường rộng: 2 tuyến song song; nhãn trái/phải theo chiều số hoá của way (đa số phiếu dọc chuỗi)
+            votes = 0
+            for j, k in enumerate(inner, start=1):
+                p0, p1, nd = net.nodes[chain[j - 1]], net.nodes[chain[j + 1]], net.nodes[k]
+                tx, ty = unit(p1["x"] - p0["x"], p1["y"] - p0["y"])
+                wx, wy = way_tangent(st["line"], nd["x"], nd["y"])
+                votes += 1 if wx * tx + wy * ty >= 0 else -1
+            same_dir = votes >= 0
+            sides = {+1: "right" if same_dir else "left", -1: "left" if same_dir else "right"}
+            for s_sign in (+1, -1):     # +1: bên phải theo chiều đi của chuỗi, -1: bên trái
+                keys = [akey(chain[0])]
+                for j, k in enumerate(inner, start=1):
+                    nd = net.nodes[k]
+                    p0, p1 = net.nodes[chain[j - 1]], net.nodes[chain[j + 1]]
+                    tx, ty = unit(p1["x"] - p0["x"], p1["y"] - p0["y"])
+                    w = streets[nd["sid"]]["width"]
+                    off = max(1.5, w / 2 - SIDE_FROM_CURB)
+                    rx, ry = ty, -tx                                   # pháp tuyến phải
+                    label = sides[s_sign]
+                    keys.append(out.add_node(nd["x"] + s_sign * off * rx, nd["y"] + s_sign * off * ry,
+                                             street=nd["street"], sid=nd["sid"], side=label))
+                keys.append(akey(chain[-1]))
+                for u, v in zip(keys, keys[1:]):
+                    out.edges.append({"a": u, "b": v, "street": st["name"], "sid": sid, "side": sides[s_sign]})
+    n_side = sum(1 for nd in out.nodes.values() if nd["side"] != "center")
+    log(f"Tách tuyến theo phía đường: {len(net.nodes)} → {len(out.nodes)} hố ga ({n_side} hố ga ở 2 bên đường rộng)")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +497,8 @@ def design_network(net: Network, rim: dict) -> dict:
         a, b = e["a"], e["b"]
         if (dist[a], a) < (dist[b], b):
             a, b = b, a
-        pipes.append({"from": a, "to": b, "L": e["L"], "street": e["street"]})
+        pipes.append({"from": a, "to": b, "L": e["L"], "street": e["street"], "sid": e.get("sid"),
+                      "side": e.get("side", "center")})
 
     # Diện tích lưu vực mỗi nút (Voronoi) – để chọn đường kính
     keys = list(net.nodes)
@@ -510,6 +688,9 @@ class Geo:
     def p(self, x, y):
         return f"SRID=32648;POINT ({self.ox + x:.3f} {self.oy + y:.3f})"
 
+    def line(self, pts):
+        return "SRID=32648;LINESTRING (" + ", ".join(f"{self.ox + x:.3f} {self.oy + y:.3f}" for x, y in pts) + ")"
+
     def lz(self, pts):
         return "SRID=32648;LINESTRING Z (" + ", ".join(f"{self.ox + x:.3f} {self.oy + y:.3f} {z:.3f}" for x, y, z in pts) + ")"
 
@@ -563,8 +744,15 @@ def main() -> None:
                          from unnest(%s::float8[], %s::float8[]) with ordinality t(lon, lat, i)) s order by i""",
                     (ox, oy, [a for a, _ in lls], [b for _, b in lls]))
         conv = {ll: xy for ll, xy in zip(lls, cur.fetchall())}
-    streets = osm_streets(osm, conv) if osm else []
-    use_osm = len(streets) >= 5
+    all_ways = osm_ways(osm, conv) if osm else []
+    net_ways = osm_streets(all_ways)
+    use_osm = len(net_ways) >= 5
+    if not use_osm:
+        all_ways = mock_ways()
+        net_ways = [dict(w) for w in all_ways]
+    orient_ways(all_ways)
+    orient_ways(net_ways)
+    streets = [(w["name"], list(w["line"].coords)) for w in net_ways]
     if use_osm:
         BOWL_CENTER = (0.0, 0.0)   # tâm = chợ Thủ Đức theo Nominatim
     INFO["roads"] = "OSM (Overpass)" if use_osm else "MOCK (lưới đường giả, mượn tên đường thật)"
@@ -573,6 +761,7 @@ def main() -> None:
     log("Xóa dữ liệu cũ …")
     cur.execute("""truncate audit_log, asset_events, incident_reports, water_obs, obs_stations, rain_scenarios,
                    flood_points, defects, inspections, utilities, pipes, csg_node, manholes, pipe_materials,
+                   sewer_lines, road_segments, roads,
                    building_surface, buildings, terrain_tin, terrain_points, user_zones, zones restart identity cascade""")
     cur.execute("alter sequence manholes_id_seq restart; alter sequence pipes_id_seq restart")
     cur.execute("delete from auth.users where email like '%%@demo.vn'")
@@ -581,6 +770,30 @@ def main() -> None:
     cur.execute("insert into zones (name, geom) values (%s, ST_GeomFromEWKT(%s)), (%s, ST_GeomFromEWKT(%s))",
                 ("Zone A – Tây", G.poly(box(-HALF_W, -HALF_H, ZONE_SPLIT_X, HALF_H)),
                  "Zone B – Đông", G.poly(box(ZONE_SPLIT_X, -HALF_H, HALF_W, HALF_H))))
+
+    # ---------------- roads + road_segments (đường thật OSM) ----------------
+    best_hw = {}
+    for w in all_ways:
+        if w["name"] not in best_hw or RANK[w["hw"]] < RANK[best_hw[w["name"]]]:
+            best_hw[w["name"]] = w["hw"]
+    road_id = {}
+    for name in sorted(best_hw, key=lambda n: (RANK[best_hw[n]], n)):
+        cur.execute("insert into roads (name, road_class, source) values (%s,%s,%s) returning id",
+                    (name, best_hw[name], "osm" if use_osm else "mock"))
+        road_id[name] = cur.fetchone()[0]
+    seg_rows = []
+    for w in all_ways:
+        cur.execute("""insert into road_segments (road_id, osm_id, width_m, lanes, oneway, width_source, geom)
+                       values (%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s)) returning id""",
+                    (road_id[w["name"]], w["osm_id"], w["width"], w["lanes"], w["oneway"], w["wsrc"],
+                     G.line(list(w["line"].coords))))
+        seg_rows.append((cur.fetchone()[0], w))
+    seg_tree = STRtree([w["line"] for _, w in seg_rows])
+    log(f"Đường: {len(road_id)} tuyến, {len(seg_rows)} đoạn (rộng ≥ {WIDE_M:.0f} m: "
+        f"{sum(1 for _, w in seg_rows if w['width'] >= WIDE_M)} đoạn)")
+
+    def nearest_segment(x, y) -> int:
+        return seg_rows[int(seg_tree.nearest(Point(x, y)))][0]
 
     # ---------------- terrain + TIN ----------------
     tpts = gen_terrain_points(800)
@@ -594,8 +807,6 @@ def main() -> None:
         return float(interp(x, y))
 
     # ---------------- network ----------------
-    if not use_osm:
-        streets = MOCK_STREETS
     street_lines = [LineString(c) for _, c in streets]
     net = build_network(streets)
     # chỉ giữ thành phần liên thông lớn nhất của mạng
@@ -619,6 +830,7 @@ def main() -> None:
         log(f"Bỏ {len(net.nodes) - len(best)} nút không liên thông")
         net.nodes = {k: v for k, v in net.nodes.items() if k in best}
         net.edges = [e for e in net.edges if e["a"] in best]
+    net = split_sides(net, net_ways)
 
     # Rim nội suy từ TIN bằng hàm tin_elev() trong PostGIS
     keys = list(net.nodes)
@@ -629,33 +841,43 @@ def main() -> None:
     design = design_network(net, rim)
     pipes, inv = design["pipes"], design["inv"]
 
-    # Hố thu (inlet) phía phải đường, nối vào hố ga bằng nhánh ngắn D600
-    seg_dir = {}
-    for p in pipes:
-        a, b = net.nodes[p["from"]], net.nodes[p["to"]]
-        seg_dir.setdefault(p["to"], (b["x"] - a["x"], b["y"] - a["y"]))
-    hosts = [k for k in keys if k not in design["outfalls"] and k in seg_dir]
-    inlet_hosts = RNG.sample(hosts, min(15, len(hosts)))
-    inlets = []
-    for h in inlet_hosts:
-        dx, dy = seg_dir[h]
-        L = math.hypot(dx, dy)
-        nx_, ny_ = dy / L, -dx / L                # pháp tuyến phải
-        x, y = net.nodes[h]["x"] + 9 * nx_, net.nodes[h]["y"] + 9 * ny_
-        k = net.add_node(x, y, street=net.nodes[h]["street"], inlet=True)
-        rim[k] = None
-        inlets.append((k, h))
-    if inlets:
-        cur.execute("""select public.tin_elev(ST_SetSRID(ST_MakePoint(x + %s, y + %s), 32648))
-                       from unnest(%s::float8[], %s::float8[]) with ordinality as t(x, y, i) order by i""",
-                    (ox, oy, [net.nodes[k]["x"] for k, _ in inlets], [net.nodes[k]["y"] for k, _ in inlets]))
-        for (k, h), r in zip(inlets, cur.fetchall()):
-            rim[k] = round(r[0], 3)
-            L = math.dist((net.nodes[k]["x"], net.nodes[k]["y"]), (net.nodes[h]["x"], net.nodes[h]["y"]))
-            z_up = max(rim[k] - 1.6, inv[h] + 0.002 * L)
-            inv[k] = z_up
-            pipes.append({"from": k, "to": h, "L": L, "street": net.nodes[h]["street"], "D": 600,
-                          "z_up": z_up, "z_dn": z_up - 0.002 * L, "A": 0, "inlet": True})
+    # ---------------- vị trí điểm ngập (theo mô tả báo chí, tọa độ xấp xỉ) ----------------
+    def gsearch(q):
+        return "https://www.google.com/search?q=" + urllib.parse.quote(q)
+    floods = [
+        ("Võ Văn Ngân – trước chợ Thủ Đức", 45, (115, -5), datetime(2025, 9, 23, 17, 30, tzinfo=timezone.utc)),
+        ("Kha Vạn Cân – giao Võ Văn Ngân", 40, (-96, 6), datetime(2025, 8, 12, 16, 0, tzinfo=timezone.utc)),
+        ("Đặng Văn Bi", 35, (150, -386), datetime(2024, 10, 2, 18, 15, tzinfo=timezone.utc)),
+        ("Tô Ngọc Vân – đoạn gần Võ Văn Ngân", 30, (376, 40), datetime(2024, 9, 18, 17, 0, tzinfo=timezone.utc)),
+        ("Dương Văn Cam", 25, (-30, 436), datetime(2023, 10, 5, 16, 45, tzinfo=timezone.utc)),
+        ("Hẻm quanh chợ Thủ Đức", 50, (115, 146), datetime(2025, 10, 20, 15, 30, tzinfo=timezone.utc)),
+    ]
+    # Nguyên nhân ngập (giả định hợp lý để demo, cần đối chiếu thực tế)
+    flood_cause = {"Võ Văn Ngân – trước chợ Thủ Đức": "mixed", "Kha Vạn Cân – giao Võ Văn Ngân": "undersized_pipe",
+                   "Đặng Văn Bi": "tide", "Tô Ngọc Vân – đoạn gần Võ Văn Ngân": "blocked_inlet",
+                   "Dương Văn Cam": "undersized_pipe", "Hẻm quanh chợ Thủ Đức": "blocked_inlet"}
+    if use_osm:  # đặt điểm ngập lên đúng tuyến đường thật theo tên (giao lộ nếu có 2 tên)
+        snap_rules = [(["Võ Văn Ngân"], (0, 0)), (["Kha Vạn Cân", "Võ Văn Ngân"], (0, 0)), (["Đặng Văn Bi"], (0, 0)),
+                      (["Tô Ngọc Vân", "Võ Văn Ngân"], (0, 0)), (["Dương Văn Cam"], (0, 0)), ([], (0, 0))]
+        moved = []
+        for (n, d, xy, t), (names, near) in zip(floods, snap_rules):
+            q = snap_to_street(streets, names, near) if names else None
+            # tránh hai điểm ngập gần như trùng nhau (nhãn đè lên nhau): cách nhau ≥ 70 m
+            cands = []
+            if names:
+                lines = [LineString(c) for nm, c in streets if names[0].lower() in nm.lower()]
+                cands = [(p.x, p.y) for ln in lines for p in (ln.interpolate(dd) for dd in np.arange(0, ln.length, 10.0))]
+            else:  # "hẻm quanh chợ": các nút mạng cống quanh chợ
+                cands = [(v["x"] + 3, v["y"] + 3) for v in net.nodes.values()]
+            target = q or near
+            ok = [c for c in cands if all(math.dist(c, m[2]) >= 70 for m in moved)]
+            if q is None or any(math.dist(q, m[2]) < 70 for m in moved):
+                q = min(ok, key=lambda c: math.dist(c, target)) if ok else q
+            if q is None:
+                log(f"  không thấy đường '{names[0]}' trong OSM → bỏ điểm ngập '{n}'")
+                continue
+            moved.append((n, d, q, t))
+        floods = moved
 
     # ---------------- cài lỗi demo ----------------
     incoming = defaultdict(list)
@@ -735,6 +957,85 @@ def main() -> None:
             continue
         p["z_dn"] = max(p["z_dn"], p["z_up"] - 0.003 * p["L"])
 
+    # ---------------- hố thu nước mặt đường (sát mép bó vỉa) ----------------
+    # Mỗi hố ga giữa đoạn (bậc 2) có 1 hố thu ở mép đường cùng phía; đường hẹp: ~55 % hố ga, xen kẽ 2 bên.
+    # Nhánh nối hố thu → hố ga: D300, dốc 1 %.
+    deg = defaultdict(int)
+    for p in pipes:
+        deg[p["from"]] += 1
+        deg[p["to"]] += 1
+    shallow_hosts = {p["from"] for p in pipes if p.get("planted") == "shallow_cover"}
+    inlets = []
+    parity = defaultdict(int)
+    for k in list(net.nodes):
+        nd = net.nodes[k]
+        if nd.get("anchor") or k in design["outfalls"] or k in shallow_hosts or deg[k] != 2:
+            continue
+        st = net_ways[nd["sid"]]
+        line = st["line"]
+        c = line.interpolate(line.project(Point(nd["x"], nd["y"])))
+        if nd["side"] == "center":
+            parity[nd["sid"]] += 1
+            if RNG.random() > 0.55:
+                continue
+            tx, ty = way_tangent(line, nd["x"], nd["y"])
+            sgn = 1 if parity[nd["sid"]] % 2 else -1
+            side = "right" if sgn > 0 else "left"
+            nx_, ny_ = ty * sgn, -tx * sgn                 # pháp tuyến phải = (ty, −tx)
+        else:
+            nx_, ny_ = unit(nd["x"] - c.x, nd["y"] - c.y)
+            side = nd["side"]
+        r = st["width"] / 2 - INLET_FROM_CURB
+        x, y = c.x + r * nx_, c.y + r * ny_
+        if math.dist((x, y), (nd["x"], nd["y"])) < 0.8:
+            continue
+        ik = net.add_node(x, y, street=nd["street"], sid=nd["sid"], side=side, inlet=True)
+        inlets.append((ik, k))
+    flood_sites = [(xy, flood_cause.get(n)) for n, _d, xy, _t in floods]
+    if inlets:
+        cur.execute("""select public.tin_elev(ST_SetSRID(ST_MakePoint(x + %s, y + %s), 32648))
+                       from unnest(%s::float8[], %s::float8[]) with ordinality as t(x, y, i) order by i""",
+                    (ox, oy, [net.nodes[k]["x"] for k, _ in inlets], [net.nodes[k]["y"] for k, _ in inlets]))
+        for (k, h), r in zip(inlets, cur.fetchall()):
+            nd = net.nodes[k]
+            rim[k] = round(r[0], 3)
+            L = math.dist((nd["x"], nd["y"]), (net.nodes[h]["x"], net.nodes[h]["y"]))
+            z_up = rim[k] - 1.1
+            z_dn = z_up - 0.01 * L
+            if z_dn < inv[h] + 0.02:
+                z_dn = inv[h] + 0.02
+                z_up = z_dn + 0.01 * L
+            inv[k] = z_up
+            nd["inlet_type"] = RNG.choices(["curb", "grate", "combined"], [55, 25, 20])[0]
+            near_bad = any(cause in ("blocked_inlet", "mixed") and math.dist(xy, (nd["x"], nd["y"])) < 90
+                           for xy, cause in flood_sites)
+            nd["blockage"] = RNG.randint(50, 90) if near_bad else int(RNG.betavariate(1.4, 5) * 100)
+            pipes.append({"from": k, "to": h, "L": L, "street": nd["street"], "sid": nd["sid"], "side": nd["side"],
+                          "D": 300, "z_up": z_up, "z_dn": z_dn, "A": 0, "inlet": True, "host": h})
+    log(f"Hố thu mép đường: {len(inlets)} (bồi lấp ≥ 50 %: "
+        f"{sum(1 for k, _ in inlets if net.nodes[k]['blockage'] >= 50)})")
+
+    # ---------------- tuyến cống (theo đường + phía) ----------------
+    line_of_node = {}
+    for p in pipes:
+        if p.get("inlet"):
+            continue
+        p["line_key"] = (net_ways[p["sid"]]["name"], p["side"])
+        line_of_node.setdefault(p["to"], p["line_key"])
+        line_of_node.setdefault(p["from"], p["line_key"])
+    for p in pipes:
+        if p.get("inlet"):
+            p["line_key"] = line_of_node[p["host"]]
+    rank_of = {w["name"]: min(RANK[x["hw"]] for x in net_ways if x["name"] == w["name"]) for w in net_ways}
+    side_vn = {"left": "phía trái", "right": "phía phải", "center": "tim đường"}
+    line_id = {}
+    for i, (name, side) in enumerate(sorted({p["line_key"] for p in pipes}, key=lambda t: (rank_of[t[0]], t[0], t[1])), 1):
+        level = "main" if rank_of[name] <= 2 else "branch"
+        cur.execute("""insert into sewer_lines (code, name, road_id, side, level) values (%s,%s,%s,%s,%s) returning id""",
+                    (f"TC-{i:03d}", f"Tuyến {name} – {side_vn[side]}", road_id.get(name), side, level))
+        line_id[(name, side)] = cur.fetchone()[0]
+    log(f"Tuyến cống: {len(line_id)} (2 bên đường: {sum(1 for _, sd in line_id if sd != 'center')})")
+
     # ---------------- materials ----------------
     cur.executemany("insert into pipe_materials (code, name, manning_n) values (%s,%s,%s)", MATERIALS)
 
@@ -766,18 +1067,21 @@ def main() -> None:
         kind = "outfall" if k in design["outfalls"] else "inlet" if nd.get("inlet") else "manhole"
         zone = "A" if nd["x"] < ZONE_SPLIT_X else "B"
         counters[(kind, zone)] += 1
-        code = {"outfall": f"CX-{zone}{counters[(kind, zone)]}", "inlet": f"HT-{zone}{counters[(kind, zone)]:02d}",
+        code = {"outfall": f"CX-{zone}{counters[(kind, zone)]}", "inlet": f"HT-{zone}{counters[(kind, zone)]:03d}",
                 "manhole": f"HG-{zone}{counters[(kind, zone)]:03d}"}[kind]
         dm = design["dmax"].get(k, 600)
         diam = 0.6 if kind == "inlet" else 1.0 if dm <= 800 else 1.2 if dm <= 1200 else 1.5
         status = RNG.choices(["active", "maintenance", "damaged", "blocked"], [90, 5, 3, 2])[0]
+        if kind == "inlet" and nd["blockage"] >= 70:
+            status = "blocked"
         node_id[k] = idx
         vf = node_vf.get(k, datetime(2005, 1, 1, tzinfo=timezone.utc))
         rows.append((idx, code, kind, rim[k], round(inv[k], 3), diam, "BTCT", status, G.pz(nd["x"], nd["y"], rim[k]),
-                     vf, vf + timedelta(days=RNG.randint(20, 200))))
+                     vf, vf + timedelta(days=RNG.randint(20, 200)), nd.get("side", "center"),
+                     nd.get("inlet_type"), nd.get("blockage") if kind == "inlet" else None, nearest_segment(nd["x"], nd["y"])))
     cur.executemany("""insert into manholes (id, code, kind, rim_elev_m, invert_elev_m, diameter_m, material, status, geom,
-                                            valid_from, tx_from)
-                       values (%s,%s,%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s),%s,%s)""", rows)
+                                            valid_from, tx_from, side, inlet_type, blockage_pct, segment_id)
+                       values (%s,%s,%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s),%s,%s,%s,%s,%s,%s)""", rows)
     cur.execute("select setval('manholes_id_seq', (select max(id) from manholes))")
     cur.execute("select public.build_manhole_csg(id) from manholes")
 
@@ -787,16 +1091,18 @@ def main() -> None:
     for i, p in enumerate(pipes, start=1):
         a, b = net.nodes[p["from"]], net.nodes[p["to"]]
         zone = "A" if (a["x"] + b["x"]) / 2 < ZONE_SPLIT_X else "B"
-        counters[zone] += 1
+        pre = "N" if p.get("inlet") else "C"
+        counters[(pre, zone)] += 1
         p["id"] = i
-        p["code"] = f"C-{zone}{counters[zone]:03d}"
+        p["code"] = f"{pre}-{zone}{counters[(pre, zone)]:03d}"
         D = 800 if p.get("planted") == "upgrade" else p["D"]
         status = RNG.choices(["active", "maintenance", "damaged", "blocked"], [88, 6, 4, 2])[0]
         rows.append((i, p["code"], node_id[p["from"]], node_id[p["to"]], D, p["mat"], p["year"], status,
-                     G.lz([(a["x"], a["y"], p["z_up"]), (b["x"], b["y"], p["z_dn"])]), p["vf"], p["tx"]))
+                     G.lz([(a["x"], a["y"], p["z_up"]), (b["x"], b["y"], p["z_dn"])]), p["vf"], p["tx"],
+                     line_id[p["line_key"]], "lateral" if p.get("inlet") else "along"))
     cur.executemany("""insert into pipes (id, code, from_mh, to_mh, diameter_mm, material_code, install_year, status, geom,
-                                         valid_from, tx_from)
-                       values (%s,%s,%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s),%s,%s)""", rows)
+                                         valid_from, tx_from, line_id, pipe_type)
+                       values (%s,%s,%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s),%s,%s,%s,%s)""", rows)
     cur.execute("select setval('pipes_id_seq', (select max(id) from pipes))")
     conn.commit()
 
@@ -824,20 +1130,27 @@ def main() -> None:
         zc = (p["z_up"] + p["z_dn"]) / 2 + p["D"] / 1000 + clr + du / 2000
         pts = [(mx + t * nx_, my + t * ny_, zc) for t in (-15, -5, 5, 15)]
         util_rows.append((kind, du, RNG.choice(owners[kind]), G.lz(pts)))
-    # 17 tuyến dọc đường, lệch tim 5 m về bên trái, cách giao lộ ≥ 15 m
+    # 17 tuyến dọc đường, đặt dưới VỈA HÈ (cách tim đường = nửa bề rộng + 1 m), cách giao lộ ≥ 15 m,
+    # không đến gần cống/nhánh hố thu nào trong 0,9 m (mặt bằng)
     segs = []
     noded = unary_union(street_lines)
     for seg in getattr(noded, "geoms", [noded]):
         if seg.length > 120:
             segs.append(seg)
-    laterals = [LineString([(net.nodes[k]["x"], net.nodes[k]["y"]), (net.nodes[h]["x"], net.nodes[h]["y"])]) for k, h in inlets]
+    all_pipe_lines = [LineString([(net.nodes[p["from"]]["x"], net.nodes[p["from"]]["y"]),
+                                  (net.nodes[p["to"]]["x"], net.nodes[p["to"]]["y"])]) for p in pipes]
+    pipe_tree = STRtree(all_pipe_lines)
     n_util = 0
     for seg in RNG.sample(segs, len(segs)):
         if n_util >= 17:
             break
+        mid = seg.interpolate(0.5, normalized=True)
+        sid = min(range(len(street_lines)), key=lambda i: street_lines[i].distance(mid))
         sub = LineString([seg.interpolate(d) for d in np.linspace(15, seg.length - 15, max(3, int(seg.length / 20)))])
-        off = sub.offset_curve(5.0)
-        if any(off.distance(l) < 3.0 for l in laterals):   # tránh cắt nhánh hố thu
+        off = sub.offset_curve(net_ways[sid]["width"] / 2 + 1.0)
+        if off.is_empty or off.geom_type != "LineString":
+            continue
+        if any(off.distance(all_pipe_lines[j]) < 0.9 for j in pipe_tree.query(off.buffer(1.0))):
             continue
         n_util += 1
         kind = RNG.choice(["water", "power", "telecom"])
@@ -896,43 +1209,12 @@ def main() -> None:
         def_rows.append((iid, round(RNG.uniform(0.5, p["L"] - 0.5), 2), typ, sev))
     cur.executemany("insert into defects (inspection_id, chainage_m, type, severity) values (%s,%s,%s,%s)", def_rows)
 
-    # ---------------- flood points (vị trí theo mô tả báo chí, tọa độ xấp xỉ) ----------------
-    def gsearch(q):
-        return "https://www.google.com/search?q=" + urllib.parse.quote(q)
-    floods = [
-        ("Võ Văn Ngân – trước chợ Thủ Đức", 45, (115, -5), datetime(2025, 9, 23, 17, 30, tzinfo=timezone.utc)),
-        ("Kha Vạn Cân – giao Võ Văn Ngân", 40, (-96, 6), datetime(2025, 8, 12, 16, 0, tzinfo=timezone.utc)),
-        ("Đặng Văn Bi", 35, (150, -386), datetime(2024, 10, 2, 18, 15, tzinfo=timezone.utc)),
-        ("Tô Ngọc Vân – đoạn gần Võ Văn Ngân", 30, (376, 40), datetime(2024, 9, 18, 17, 0, tzinfo=timezone.utc)),
-        ("Dương Văn Cam", 25, (-30, 436), datetime(2023, 10, 5, 16, 45, tzinfo=timezone.utc)),
-        ("Hẻm quanh chợ Thủ Đức", 50, (115, 146), datetime(2025, 10, 20, 15, 30, tzinfo=timezone.utc)),
-    ]
-    if use_osm:  # đặt điểm ngập lên đúng tuyến đường thật theo tên (giao lộ nếu có 2 tên)
-        snap_rules = [(["Võ Văn Ngân"], (0, 0)), (["Kha Vạn Cân", "Võ Văn Ngân"], (0, 0)), (["Đặng Văn Bi"], (0, 0)),
-                      (["Tô Ngọc Vân", "Võ Văn Ngân"], (0, 0)), (["Dương Văn Cam"], (0, 0)), ([], (0, 0))]
-        moved = []
-        for (n, d, xy, t), (names, near) in zip(floods, snap_rules):
-            q = snap_to_street(streets, names, near) if names else None
-            # tránh hai điểm ngập gần như trùng nhau (nhãn đè lên nhau): cách nhau ≥ 70 m
-            cands = []
-            if names:
-                lines = [LineString(c) for nm, c in streets if names[0].lower() in nm.lower()]
-                cands = [(p.x, p.y) for ln in lines for p in (ln.interpolate(dd) for dd in np.arange(0, ln.length, 10.0))]
-            else:  # "hẻm quanh chợ": các nút mạng cống quanh chợ
-                cands = [(v["x"] + 3, v["y"] + 3) for v in net.nodes.values()]
-            target = q or near
-            ok = [c for c in cands if all(math.dist(c, m[2]) >= 70 for m in moved)]
-            if q is None or any(math.dist(q, m[2]) < 70 for m in moved):
-                q = min(ok, key=lambda c: math.dist(c, target)) if ok else q
-            if q is None:
-                log(f"  không thấy đường '{names[0]}' trong OSM → bỏ điểm ngập '{n}'")
-                continue
-            moved.append((n, d, q, t))
-        floods = moved
-    cur.executemany("""insert into flood_points (name, max_depth_cm, source_url, occurred_at, note, geom)
-                       values (%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s))""",
+    # ---------------- flood points ----------------
+    cur.executemany("""insert into flood_points (name, max_depth_cm, source_url, occurred_at, note, cause, geom)
+                       values (%s,%s,%s,%s,%s,%s,ST_GeomFromEWKT(%s))""",
                     [(n, d, gsearch(f"ngập {n.split(' – ')[0]} Thủ Đức"), t,
-                      "Điểm ngập được báo chí nhắc tới; tọa độ & độ sâu xấp xỉ (cần đối chiếu bài báo gốc)", G.p(*xy))
+                      "Điểm ngập được báo chí nhắc tới; tọa độ & độ sâu xấp xỉ (cần đối chiếu bài báo gốc)",
+                      flood_cause.get(n), G.p(*xy))
                      for n, d, xy, t in floods])
 
     # ---------------- rain scenarios ----------------
@@ -1050,7 +1332,7 @@ def main() -> None:
     # ---------------- kiểm tra nhanh ----------------
     cur.execute("select set_config('app.seeding', 'off', false)")
     summary = {}
-    for t in ["terrain_points", "terrain_tin", "buildings", "building_surface", "pipe_materials", "manholes", "csg_node",
+    for t in ["roads", "road_segments", "sewer_lines", "terrain_points", "terrain_tin", "buildings", "building_surface", "pipe_materials", "manholes", "csg_node",
               "pipes", "utilities", "inspections", "defects", "flood_points", "rain_scenarios", "water_obs",
               "incident_reports", "asset_events", "profiles", "zones"]:
         cur.execute(f"select count(*) from {t}")

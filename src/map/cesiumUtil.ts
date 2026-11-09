@@ -5,6 +5,7 @@ import {
   CustomHeightmapTerrainProvider,
   EllipsoidTerrainProvider,
   GeographicTilingScheme,
+  Ion,
   Math as CMath,
   type TerrainProvider,
 } from 'cesium'
@@ -13,6 +14,45 @@ import { KIND, STATUS, UTILITY } from '@/lib/theme'
 export { ratioColor } from '@/lib/theme'
 
 export const CESIUM_TOKEN = (import.meta.env.VITE_CESIUM_TOKEN as string | undefined) || ''
+
+// ---- Token Cesium ion: lấy từ ô nhập trên giao diện (lưu localStorage của trình duyệt) hoặc biến môi trường ----
+const ION_KEY = 'ie402.cesiumIonToken'
+const ION_DEFAULT = Ion.defaultAccessToken
+const ionListeners = new Set<() => void>()
+export function getIonToken(): string {
+  try {
+    return localStorage.getItem(ION_KEY) || CESIUM_TOKEN
+  } catch {
+    return CESIUM_TOKEN
+  }
+}
+export const ionTokenFromUser = () => { try { return !!localStorage.getItem(ION_KEY) } catch { return false } }
+function applyIonToken() {
+  Ion.defaultAccessToken = getIonToken() || ION_DEFAULT
+}
+applyIonToken()
+export function setIonToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(ION_KEY, token.trim())
+    else localStorage.removeItem(ION_KEY)
+  } catch { /* trình duyệt chặn localStorage */ }
+  applyIonToken()
+  ionListeners.forEach((f) => f())
+}
+export function subscribeIonToken(f: () => void) {
+  ionListeners.add(f)
+  return () => { ionListeners.delete(f) }
+}
+/** Kiểm tra token bằng cách xin endpoint của asset 1 (Cesium World Terrain) */
+export async function checkIonToken(token: string): Promise<string | null> {
+  try {
+    const r = await fetch(`https://api.cesium.com/v1/assets/1/endpoint?access_token=${encodeURIComponent(token.trim())}`)
+    if (r.ok) return null
+    return r.status === 401 ? 'Token không hợp lệ hoặc đã bị thu hồi' : r.status === 404 ? 'Token không có quyền dùng Cesium World Terrain (asset 1)' : `Cesium ion trả lỗi HTTP ${r.status}`
+  } catch {
+    return 'Không kết nối được tới api.cesium.com'
+  }
+}
 export const HEIGHT_OFFSET = Number(import.meta.env.VITE_HEIGHT_OFFSET ?? 0) || 0
 /** Tâm khu vực (xấp xỉ chợ Thủ Đức) – dùng khi chưa tải được dữ liệu */
 export const CENTER = { lon: 106.7542, lat: 10.8502 }

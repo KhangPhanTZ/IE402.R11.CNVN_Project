@@ -12,6 +12,7 @@ export function useMapLayers() {
     useQuery({ queryKey: ['layer', fn, role], queryFn: () => rpc<FeatureCollection>(fn), enabled: enabled && isStaff, staleTime: 60_000 })
   const pub = useQuery({ queryKey: ['layer', 'layer_public', role], queryFn: () => rpc<FeatureCollection>('layer_public'), enabled: enabled && !isStaff })
   const flood = useQuery({ queryKey: ['layer', 'layer_flood_points'], queryFn: () => rpc<FeatureCollection>('layer_flood_points'), enabled })
+  const roads = useQuery({ queryKey: ['layer', 'layer_roads'], queryFn: () => rpc<FeatureCollection>('layer_roads'), enabled, staleTime: 10 * 60_000 })
   const incidents = useQuery({
     queryKey: ['layer', 'layer_incidents', role],
     queryFn: () => rpc<FeatureCollection>('layer_incidents'),
@@ -44,10 +45,11 @@ export function useMapLayers() {
     tin: tin.data,
     utilities: utilities.data,
     flood: flood.data,
+    roads: roads.data,
     incidents: incidents.data,
     zones: zones.data,
     scenarios: scenarios.data ?? [],
     isLoading: [manholes, pipes, pub, flood].some((q) => q.isLoading && q.fetchStatus !== 'idle'),
-    errors: [manholes, pipes, buildings, tin, utilities, pub, flood].map((q) => q.error).filter(Boolean) as Error[],
+    errors: [manholes, pipes, buildings, tin, utilities, pub, flood, roads].map((q) => q.error).filter(Boolean) as Error[],
   }
 }

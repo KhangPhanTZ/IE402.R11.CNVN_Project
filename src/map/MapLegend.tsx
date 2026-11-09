@@ -37,6 +37,13 @@ export function MapLegend({ className, staff }: { className?: string; staff: boo
               <ul className="space-y-1">{Object.values(UTILITY).map((s) => <Row key={s.label} color={s.color} label={s.label} />)}</ul>
             </div>
           )}
+          <div>
+            <p className="mb-1 text-xs font-semibold">Đường</p>
+            <ul className="space-y-1">
+              <Row color="#64748b" label="Đường chính (2 tuyến cống 2 bên)" shape="box" />
+              <Row color="#cbd5e1" label="Hẻm / nội bộ (1 tuyến ở tim)" shape="box" />
+            </ul>
+          </div>
           <ul className="space-y-1">
             <Row color="#0284c7" label="Điểm ngập (cm)" shape="dot" />
             {staff && <Row color="#c7d2fe" label="Nhà có tầng hầm" shape="box" />}

@@ -20,13 +20,15 @@ Popup trên bản đồ chia đúng 3 tab **NN / KG / TG**.
 
 | Đối tượng | Ngữ nghĩa (NN) | Không gian (KG) | Thời gian (TG) |
 |---|---|---|---|
-| Hố ga `manholes` | mã, loại (manhole/inlet/outfall), vật liệu, trạng thái, đường kính | `PointZ` (Z = cao độ nắp), `rim_elev_m`, `invert_elev_m`; khối 3D từ cây `csg_node` | `valid_from/to`, `tx_from/to` (bitemporal, versioning), `asset_events` |
-| Cống `pipes` | mã, D, vật liệu (FK → Manning n), năm lắp, trạng thái, sức chứa | `LineStringZ` (Z = invert), `from_mh → to_mh` (Node–Arc, hướng dòng), `length_m` = ST_3DLength, `slope` | bitemporal + lịch sử phiên bản (ví dụ nâng cấp D800 → D1200) + sự kiện, kiểm tra CCTV |
+| Đường `roads` + đoạn đường `road_segments` | tên đường (chuẩn hoá từ OSM), cấp đường; mỗi đoạn: bề rộng lòng đường, số làn, một chiều, nguồn bề rộng | `LineString` tim đường (OSM thật) | (tĩnh) |
+| Tuyến cống `sewer_lines` | mã tuyến, đường chạy dọc, **phía** (trái/phải/tim đường), cấp (chính/nhánh) | gom các cống `pipes.line_id` | (theo cống) |
+| Hố ga `manholes` | mã, loại (manhole/**inlet = hố thu**/outfall), vật liệu, trạng thái, đường kính; hố thu: **kiểu thu** (bó vỉa/song chắn/kết hợp), **phía**, **mức bồi lấp %**, đoạn đường nằm cạnh | `PointZ` (Z = cao độ nắp), `rim_elev_m`, `invert_elev_m`; khối 3D từ cây `csg_node` | `valid_from/to`, `tx_from/to` (bitemporal, versioning), `asset_events` |
+| Cống `pipes` | mã, D, vật liệu (FK → Manning n), năm lắp, trạng thái, sức chứa, **tuyến cống**, loại (dọc đường / băng ngang / nhánh hố thu) | `LineStringZ` (Z = invert), `from_mh → to_mh` (Node–Arc, hướng dòng), `length_m` = ST_3DLength, `slope` | bitemporal + lịch sử phiên bản (ví dụ nâng cấp D800 → D1200) + sự kiện, kiểm tra CCTV |
 | Lỗi lòng cống `defects` | loại, mức độ, cấp kiểm tra | `chainage_m` → điểm 3D bằng `ST_LineInterpolatePoint` | `inspected_at` |
 | Công trình `buildings` + `building_surface` | tên, số tầng, tầng hầm, năm xây | `Polygon` + B-Rep `PolygonZ` Ground/Wall/Roof (SUDM, LOD1–2), `base_elev_m`, `height_m` | `valid_from/to`, `tx_from/to`, `year_built` |
 | Địa hình `terrain_points` / `terrain_tin` | nguồn dữ liệu | `PointZ` / tam giác `PolygonZ` (ST_DelaunayTriangles) | (trạng thái tĩnh) |
 | Công trình ngầm `utilities` | loại (nước/điện/viễn thông), D, chủ quản | `LineStringZ` (tim ống) | bitemporal |
-| Điểm ngập `flood_points` | tên, độ sâu, nguồn | `Point` | `occurred_at` |
+| Điểm ngập `flood_points` | tên, độ sâu, nguồn, **nguyên nhân** | `Point` | `occurred_at` |
 | Quan trắc `water_obs` | mưa, mực nước | trạm `obs_stations` (`Point`), chọn trạm gần nhất bằng KNN | chuỗi thời gian 15 phút |
 | Sự cố `incident_reports` | loại, ghi chú, ảnh, trạng thái, KTV | `Point`, hố ga gần nhất (KNN), khu (ST_Within) | `created_at → accepted_at → arrived_at → resolved_at` |
 | Sự kiện `asset_events` | loại sự kiện, chi tiết jsonb, actor | gắn tài sản (asset_type, asset_id) | `valid_time` + `tx_time` |
@@ -84,13 +86,14 @@ Ngoài ra: các hàm lớp dữ liệu (`layer_*`), `asset_history`, CRUD (`crea
 | Đường | **Thật** – OSM/Overpass (tải ngày 08/11/2026, lưu cache `scripts/data/osm_thuduc.json`) | Mạng cống đặt dọc tim các đường OSM: Võ Văn Ngân, Kha Vạn Cân, Tô Ngọc Vân, Đặng Văn Bi, Dương Văn Cam, Hồ Văn Tư, Chương Dương, Lê Văn Ninh, các đường số và hẻm… (≈ 9,4 km). |
 | Nhà | **Hình dạng thật** – 500 footprint OSM gần chợ nhất + đa giác chợ Thủ Đức | Số tầng lấy từ `building:levels` nếu có, nếu không thì **giả định**; tầng hầm, năm xây là **mock**. |
 | Địa hình | **MOCK** | ~800 điểm dạng lòng chảo (+0,8 m tại chợ → +3…+5 m ra ngoài); không phải DEM thật. |
-| Mạng cống, hố ga, CSG, công trình ngầm, kiểm tra, lỗi, sự cố, sự kiện, quan trắc | **MOCK** (sinh có quy luật thủy lực trên đường thật) | Hướng dòng theo khoảng cách mạng tới cửa xả; D chọn theo lưu vực Voronoi; dốc 0,1–0,3%; chôn sâu ≥ 1,5 m (+ D + 0,9 m); nơi mặt đất dốc ngược hướng dòng thì hạ sâu về hạ lưu. **Không phải bản vẽ hoàn công thật** của mạng thoát nước Thủ Đức. |
+| Đường | **Thật (OSM)** – 211 đoạn / 173 tuyến đường trong phạm vi | Bề rộng: thẻ `width` của OSM nếu hợp lệ, nếu không ước từ `lanes` (3,5 m/làn + 1 m), cuối cùng theo cấp đường (chính 14 m, khu vực 10 m, hẻm 6 m). |
+| Mạng cống, hố ga, CSG, công trình ngầm, kiểm tra, lỗi, sự cố, sự kiện, quan trắc | **MOCK** (sinh có quy luật thủy lực trên đường thật) | Đường rộng ≥ 10 m: **2 tuyến cống 2 bên** (dưới làn ngoài, cách bó vỉa 3 m), hội về hố ga giao lộ; hẻm: 1 tuyến ở tim đường. **Hố thu** đặt sát mép bó vỉa (mọi hố ga giữa đoạn trên đường rộng, ~55 % trên hẻm, xen kẽ 2 bên), nối hố ga bằng nhánh D300 dốc 1 %; hố thu gần điểm ngập do "hố thu bị lấp" có mức bồi lấp 50–90 %. Công trình ngầm khác đặt dưới vỉa hè. Hướng dòng theo khoảng cách mạng tới cửa xả; D chọn theo lưu vực Voronoi; dốc 0,1–0,3%; chôn sâu ≥ 1,5 m (+ D + 0,9 m); nơi mặt đất dốc ngược hướng dòng thì hạ sâu về hạ lưu. **Không phải bản vẽ hoàn công thật** của mạng thoát nước Thủ Đức. |
 | Điểm ngập (6) | Tên đường/khu vực **được báo chí nhắc tới là điểm ngập**; vị trí đặt lên đúng tuyến đường OSM theo tên (giao lộ nếu có 2 tên); **độ sâu, ngày là xấp xỉ** | `source_url` hiện là **liên kết tìm kiếm**, không phải bài báo cụ thể – cần thay bằng URL bài báo đã kiểm chứng trước khi nộp. |
 | Kịch bản mưa | Giả định (50/80/120 mm/h → mực nước 1,2/1,6/2,1 m) | |
 
 Dữ liệu OSM © OpenStreetMap contributors, giấy phép ODbL 1.0. Seed đọc cache `scripts/data/osm_thuduc.json` (chạy được không cần mạng); tải lại từ Overpass bằng `OSM_REFRESH=1`, ép sinh dữ liệu mock bằng `SEED_OFFLINE=1` và xoá/đổi tên file cache.
 
-Số bản ghi sau khi seed (bản hiện tại): terrain_points 800 · terrain_tin 1 566 · buildings 500 (100 có tầng hầm) · building_surface 3 607 · pipe_materials 3 · **manholes 221 hiện hành (3 cửa xả, 15 hố thu)** · csg_node 1 105 · **pipes 226 hiện hành** (+2 bản lịch sử) · utilities 20 · inspections 120 · defects 300 · flood_points 6 · rain_scenarios 3 · water_obs 17 664 (92 ngày × 96 × 2 trạm) · incident_reports 150 · asset_events 500.
+Số bản ghi sau khi seed (bản hiện tại): terrain_points 800 · terrain_tin 1 566 · buildings 500 (100 có tầng hầm) · building_surface 3 607 · pipe_materials 3 · roads 173 · road_segments 211 · sewer_lines 49 (22 tuyến ở 2 bên đường rộng) · **manholes 457 hiện hành (3 cửa xả, 179 hố thu)** · csg_node 2 285 · **pipes 490 hiện hành** (179 nhánh hố thu; +2 bản lịch sử) · utilities 20 · inspections 120 · defects 300 · flood_points 6 · rain_scenarios 3 · water_obs 17 664 (92 ngày × 96 × 2 trạm) · incident_reports 150 · asset_events 500.
 
 **Lỗi cài sẵn để demo** (đã kiểm chứng bằng `test_rpc.ts`): 3 cống dốc ngược/bằng (Q1), 3 cống chôn nông (Q2), 3 điểm va chạm với công trình ngầm (Q3), 1 cống nâng cấp D800 → D1200 từ 15/06/2025 (Q9, tab TG có 3 phiên bản).
 

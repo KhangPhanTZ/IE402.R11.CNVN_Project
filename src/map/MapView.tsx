@@ -8,7 +8,6 @@ import {
   createWorldTerrainAsync,
   EllipsoidTerrainProvider,
   ImageryLayer,
-  Ion,
   Math as CMath,
   UrlTemplateImageryProvider,
   Credit,
@@ -18,9 +17,8 @@ import {
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import type { FeatureCollection } from '@/lib/types'
-import { BASEMAPS, CENTER, CESIUM_TOKEN, HEIGHT_OFFSET, tinTerrainProvider, type BasemapKey } from './cesiumUtil'
-
-if (CESIUM_TOKEN) Ion.defaultAccessToken = CESIUM_TOKEN
+import { BASEMAPS, CENTER, HEIGHT_OFFSET, tinTerrainProvider, type BasemapKey } from './cesiumUtil'
+import { useIonToken } from './IonTokenField'
 
 export type TerrainMode = 'ellipsoid' | 'tin' | 'world'
 export interface PickInfo {
@@ -38,6 +36,7 @@ interface Props {
   tin?: FeatureCollection
   onReady?: (v: CViewer) => void
   onPick?: (p: PickInfo) => void
+  onTerrainError?: (msg: string) => void
   className?: string
 }
 
@@ -91,7 +90,8 @@ function Init({ alpha, onReady, pickRef }: { alpha: number; onReady: (v: CViewer
   return null
 }
 
-export function MapView({ children, alpha, terrain, basemap = 'light', tin, onReady, onPick, className }: Props) {
+export function MapView({ children, alpha, terrain, basemap = 'light', tin, onReady, onPick, onTerrainError, className }: Props) {
+  const ionToken = useIonToken()
   const [viewer, setViewer] = useState<CViewer | null>(null)
   const pickRef = useRef(onPick)
   pickRef.current = onPick
@@ -109,7 +109,7 @@ export function MapView({ children, alpha, terrain, basemap = 'light', tin, onRe
     if (!viewer) return
     let cancelled = false
     viewer.imageryLayers.removeAll()
-    if (basemap === 'ion' && CESIUM_TOKEN) {
+    if (basemap === 'ion' && ionToken) {
       createWorldImageryAsync().then((p) => !cancelled && !viewer.isDestroyed() && viewer.imageryLayers.addImageryProvider(p))
     } else {
       const b = BASEMAPS[basemap === 'ion' ? 'light' : basemap]
@@ -121,23 +121,31 @@ export function MapView({ children, alpha, terrain, basemap = 'light', tin, onRe
     }
     viewer.scene.requestRender()
     return () => { cancelled = true }
-  }, [viewer, basemap])
+  }, [viewer, basemap, ionToken])
 
   // Địa hình: Ellipsoid / TIN tuỳ biến / Cesium World Terrain (cần token)
   useEffect(() => {
     if (!viewer) return
-    if (terrain === 'world' && CESIUM_TOKEN) {
-      createWorldTerrainAsync().then((t) => !viewer.isDestroyed() && (viewer.terrainProvider = t))
+    if (terrain === 'world' && ionToken) {
+      let cancelled = false
+      createWorldTerrainAsync()
+        .then((t) => { if (!cancelled && !viewer.isDestroyed()) viewer.terrainProvider = t })
+        .catch((e) => {
+          if (cancelled || viewer.isDestroyed()) return
+          viewer.terrainProvider = ELLIPSOID
+          onTerrainError?.(`Không tải được Cesium World Terrain: ${e?.message ?? e}`)
+        })
+      return () => { cancelled = true }
     } else if (terrain === 'tin' && tin?.features.length) {
       viewer.terrainProvider = tinTerrainProvider(tin)
     } else {
       viewer.terrainProvider = ELLIPSOID
     }
-  }, [viewer, terrain, tin])
+  }, [viewer, terrain, tin, ionToken])
 
   return (
     <Viewer
-      className={className ?? `absolute inset-0 ${CESIUM_TOKEN ? '' : 'no-ion-logo'}`}
+      className={className ?? `absolute inset-0 ${ionToken ? '' : 'no-ion-logo'}`}
       animation={false}
       timeline={false}
       baseLayerPicker={false}
