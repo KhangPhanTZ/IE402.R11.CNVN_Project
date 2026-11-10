@@ -2,7 +2,7 @@ import { useEffect, useMemo, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ClipboardList, Droplets, LogIn, LogOut, Map, Megaphone, Search, Settings2, User } from 'lucide-react'
+import { ClipboardList, Droplets, Home, LogIn, LogOut, Map, Megaphone, Search, Settings2, User } from 'lucide-react'
 import { Tooltip, TooltipProvider } from './ui/tooltip'
 import { DropdownContent, DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator, DropdownTrigger } from './ui/dropdown'
 import { Badge } from './ui/badge'
@@ -67,13 +67,14 @@ export function Layout({ children }: { children: ReactNode }) {
   const base: CmdGroup[] = useMemo(() => [{
     heading: 'Điều hướng',
     items: [
+      { id: 'nav:/', label: 'Mở Trang chủ', icon: <Droplets />, run: () => nav('/') },
       ...links.map((l) => ({ id: `nav:${l.to}`, label: `Mở ${l.label}`, icon: <l.icon />, run: () => nav(l.to) })),
       session ? { id: 'auth:logout', label: 'Đăng xuất', icon: <LogOut />, run: () => signOut().then(() => nav('/map')) }
               : { id: 'auth:login', label: 'Đăng nhập', icon: <LogIn />, run: () => nav('/login') },
     ],
   }], [links.length, session]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loc.pathname === '/login') return <TooltipProvider><CommandProvider base={base}>{children}</CommandProvider></TooltipProvider>
+  if (loc.pathname === '/login' || loc.pathname === '/') return <TooltipProvider><CommandProvider base={base}>{children}</CommandProvider></TooltipProvider>
 
   return (
     <TooltipProvider>
@@ -82,7 +83,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm">Bỏ qua tới nội dung</a>
           {/* Rail điều hướng (desktop) */}
           <aside className="z-20 hidden w-16 shrink-0 flex-col items-center gap-1 bg-slate-950 py-3 sm:flex" aria-label="Điều hướng chính">
-            <NavLink to="/map" aria-label="Trang chủ – bản đồ" className="mb-3 flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-sky-600 text-white shadow-lg shadow-cyan-500/20">
+            <NavLink to="/" aria-label="Trang chủ" className="mb-3 flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-sky-600 text-white shadow-lg shadow-cyan-500/20">
               <Droplets className="size-5" />
             </NavLink>
             <nav className="flex flex-col gap-1">
@@ -128,8 +129,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
           {/* Thanh tab đáy (mobile) */}
           <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-stretch border-t bg-white/95 backdrop-blur sm:hidden" aria-label="Điều hướng chính">
-            {[...links, session ? null : { to: '/login', label: 'Đăng nhập', icon: LogIn }].filter(Boolean).map((l) => (
-              <NavLink key={l!.to} to={l!.to} className={({ isActive }) => cn('flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-slate-500', isActive && 'text-primary')}>
+            {[{ to: '/', label: 'Trang chủ', icon: Home }, ...links, session ? null : { to: '/login', label: 'Đăng nhập', icon: LogIn }].filter(Boolean).map((l) => (
+              <NavLink key={l!.to} to={l!.to} end className={({ isActive }) => cn('flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 whitespace-nowrap text-[11px] font-medium text-slate-500', isActive && 'text-primary')}>
                 {(() => { const I = l!.icon; return <I className="size-5" /> })()}
                 {l!.label}
               </NavLink>
