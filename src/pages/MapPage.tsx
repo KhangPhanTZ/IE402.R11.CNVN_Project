@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Viewer as CViewer } from 'cesium'
 import { AnimatePresence, animate, motion } from 'motion/react'
-import { ChevronsLeft, ChevronsRight, CircleDot, Eye, EyeOff, GitCommitHorizontal, Info, Layers, Lock, Map as MapIcon, PencilRuler, Route, Search, Sigma, X } from 'lucide-react'
+import { ChevronDown, ChevronsLeft, ChevronsRight, CircleDot, Eye, EyeOff, GitCommitHorizontal, Info, Layers, Lock, Map as MapIcon, PencilRuler, Route, Search, Sigma, X } from 'lucide-react'
 import { MapView, flyTo, type PickInfo, type TerrainMode } from '@/map/MapView'
 import { BRepLayer, BuildingsLayer, FloodLayer, IncidentsLayer, ManholesLayer, OverlayLayer, PipesLayer, RoadsLayer, TinLayer, UtilitiesLayer, WaterSurface, ZonesLayer } from '@/map/layers'
 import { FeaturePopup } from '@/map/FeaturePopup'
@@ -69,7 +69,9 @@ export default function MapPage() {
   const L = useMapLayers()
   const [params] = useSearchParams()
   const [viewer, setViewer] = useState<CViewer | null>(null)
-  const [panelOpen, setPanelOpen] = useState(true)
+  // Điện thoại: bảng điều khiển là tấm trượt từ dưới lên, mặc định thu gọn để thấy bản đồ trước
+  const isMobile = () => typeof window !== 'undefined' && !window.matchMedia('(min-width: 640px)').matches
+  const [panelOpen, setPanelOpen] = useState(() => !isMobile())
   const [tab, setTab] = useState('layers')
   const [vis, setVis] = useState<Record<LayerKey, boolean>>({ tin: false, buildings: true, roads: true, pipes: true, manholes: true, utilities: true, flood: true, defects: false, zones: false, incidents: false })
   const [alpha, setAlpha] = useState(1)
@@ -137,6 +139,11 @@ export default function MapPage() {
     const c = firstCoord(f)
     if (c.length) flyTo(viewer, c[0], c[1], c[2] ?? 0, range)
   }
+
+  useEffect(() => {
+    if ((selected || result) && isMobile()) setPanelOpen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, result])
 
   // ?focus=incident:12 → bay tới đối tượng
   useEffect(() => {
@@ -224,15 +231,18 @@ export default function MapPage() {
 
       {/* ---------------- Panel trái ---------------- */}
       {!panelOpen && (
-        <Button variant="outline" className="absolute left-3 top-3 shadow-e2" onClick={() => setPanelOpen(true)} aria-label="Mở bảng điều khiển">
-          <ChevronsRight /> Bảng điều khiển
+        <Button variant="outline" className="absolute left-3 top-3 z-10 shadow-e2 max-sm:bottom-3 max-sm:left-1/2 max-sm:top-auto max-sm:h-11 max-sm:-translate-x-1/2 max-sm:rounded-full max-sm:px-5"
+          onClick={() => setPanelOpen(true)} aria-label="Mở bảng điều khiển">
+          <ChevronsRight className="max-sm:hidden" /><Layers className="sm:hidden" /> Bảng điều khiển
         </Button>
       )}
       <aside
-        className={cn('map-panel absolute bottom-3 left-3 top-3 flex w-[min(360px,calc(100%-1.5rem))] flex-col transition-transform duration-200', !panelOpen && '-translate-x-[110%]')}
+        className={cn('map-panel absolute inset-x-2 bottom-2 z-20 flex h-[62%] flex-col transition-transform duration-200 sm:inset-x-auto sm:bottom-3 sm:left-3 sm:top-3 sm:h-auto sm:w-[min(360px,calc(100%-1.5rem))]',
+          !panelOpen && 'max-sm:translate-y-[115%] sm:-translate-x-[110%]')}
         aria-label="Bảng điều khiển bản đồ"
         aria-hidden={!panelOpen}
       >
+        <span aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300 sm:hidden" />
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b p-2">
             <TabsList className="grid flex-1 grid-cols-3">
@@ -240,7 +250,7 @@ export default function MapPage() {
               <TabsTrigger value="analysis" disabled={!isStaff}>{isStaff ? <Sigma /> : <Lock />}Phân tích</TabsTrigger>
               <TabsTrigger value="edit" disabled={!isStaff}>{isStaff ? <PencilRuler /> : <Lock />}Sửa</TabsTrigger>
             </TabsList>
-            <Button size="icon" variant="ghost" onClick={() => setPanelOpen(false)} aria-label="Thu gọn bảng điều khiển"><ChevronsLeft /></Button>
+            <Button size="icon" variant="ghost" onClick={() => setPanelOpen(false)} aria-label="Thu gọn bảng điều khiển"><ChevronsLeft className="max-sm:hidden" /><ChevronDown className="sm:hidden" /></Button>
           </div>
 
           <TabsContent value="layers" className="min-h-0 flex-1 space-y-4 overflow-auto p-3">

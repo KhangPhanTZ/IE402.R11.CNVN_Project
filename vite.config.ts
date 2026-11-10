@@ -4,7 +4,8 @@ import cesium from 'vite-plugin-cesium'
 import path from 'node:path'
 
 export default defineConfig({
-  plugins: [react(), cesium()],
+  // rebuildCesium: gom Cesium vào gói của trang bản đồ (tải lười) thay vì chèn Cesium.js 6 MB chặn hiển thị vào mọi trang
+  plugins: [react(), cesium({ rebuildCesium: true })],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   server: {
     port: 5173,

@@ -5,6 +5,7 @@ import { useAuth } from './lib/auth'
 import LoginPage from './pages/LoginPage'
 import type { Role } from './lib/types'
 
+const HomePage = lazy(() => import('./pages/HomePage'))
 const MapPage = lazy(() => import('./pages/MapPage'))
 const ReportPage = lazy(() => import('./pages/ReportPage'))
 const IncidentsPage = lazy(() => import('./pages/IncidentsPage'))
@@ -23,13 +24,13 @@ export default function App() {
     <Layout>
       <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Đang tải…</div>}>
         <Routes>
-          <Route path="/" element={<Navigate to="/map" replace />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/map" element={<MapPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/report" element={<Guard roles={['citizen', 'technician', 'admin']}><ReportPage /></Guard>} />
           <Route path="/incidents" element={<Guard roles={['technician', 'admin']}><IncidentsPage /></Guard>} />
           <Route path="/admin" element={<Guard roles={['admin']}><AdminPage /></Guard>} />
-          <Route path="*" element={<Navigate to="/map" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </Layout>
